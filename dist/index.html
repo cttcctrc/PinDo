@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PinDo · Dodo 动态桌宠版</title>
+  <meta name="description" content="PinDo Windows 桌面便签与动态桌宠交互原型" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23fff1d6'/%3E%3Cpath d='M32 8c8 0 14 6 14 14 0 6-4 11-9 13v17l-5 5-5-5V35c-5-2-9-7-9-13 0-8 6-14 14-14Z' fill='%23ef644f'/%3E%3Ccircle cx='27' cy='21' r='2.2' fill='white'/%3E%3Ccircle cx='37' cy='21' r='2.2' fill='white'/%3E%3Cpath d='M27 27c3 3 7 3 10 0' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <main class="desktop" id="desktop" aria-label="PinDo便签桌面">
+      <div class="desktop-hint"><span>拔出图钉后可移动</span><span class="dot"></span><span>拖到右侧自动收纳</span><span class="dot"></span><span>右下角调整尺寸</span></div>
+      <div class="dock-target" id="dockTarget"><span>松开后收纳</span></div>
+      <div class="dock-target left-dock-target" id="leftDockTarget"><span>松开隐藏 Dodo</span></div>
+      <section id="noteLayer" class="note-layer"></section>
+      <aside id="bookmarkDock" class="bookmark-dock" aria-label="已收纳便签"></aside>
+    </main>
+
+    <aside class="assistant" id="assistant">
+      <section class="dodo-nudge" id="dodoNudge" hidden aria-live="assertive"></section>
+      <section class="assistant-panel" id="assistantPanel" hidden>
+        <header><div><strong>PinDo</strong><small id="assistantGreeting">Dodo，今天也轻松一点</small></div><button id="tuckAssistant" title="收进桌面侧边">收起</button></header>
+        <div class="assistant-section create-section">
+          <div class="section-heading"><strong>新建便签</strong><span>Ctrl + Shift + N</span></div>
+          <div class="assistant-create">
+            <button data-create="quick"><span>✎</span>随手记</button>
+            <button data-create="todo"><span>✓</span>待办</button>
+            <button data-create="timeline"><span>⋮</span>时间轴</button>
+            <button data-create="organizer"><span>▦</span>桌面整理</button>
+          </div>
+        </div>
+        <div class="assistant-section today-section">
+          <div class="section-heading"><strong>今日待办</strong><span id="todaySummary">0 项</span></div>
+          <div id="assistantTodos" class="assistant-todos"></div>
+        </div>
+        <div class="assistant-section recycle-section">
+          <button class="recycle-entry" id="recycleEntry"><span class="recycle-icon">♲</span><span><strong>回收站</strong><small id="recycleSummary">0 个便签</small></span><b>›</b></button>
+          <div class="recycle-list" id="recycleList" hidden></div>
+        </div>
+        <div class="assistant-section settings-section">
+          <button class="settings-entry" id="settingsEntry"><span class="settings-icon" aria-hidden="true"></span><span><strong>设置</strong><small>界面、字体与 Dodo 大小</small></span><b>›</b></button>
+        </div>
+        <button class="profile-row" id="profileButton"><span class="profile-avatar">T</span><span><strong>Thomas</strong><small>本地账户 · 数据保存在此电脑</small></span><b>›</b></button>
+        <button class="cloud-entry" id="cloudButton"><span class="cloud-icon">☁</span><span><strong>云同步与 PinDo Plus</strong><small>功能已预留，当前无需付费</small></span><b>›</b></button>
+      </section>
+      <button class="mascot-button" id="assistantMascot" aria-label="打开Dodo助手" title="Dodo助手（可拖动）">
+        <span class="dodo-art" aria-hidden="true"></span>
+        <canvas class="dodo-canvas" id="dodoCanvas" width="512" height="512" aria-hidden="true"></canvas>
+        <span class="mascot-name">Dodo</span><span class="notification-badge" id="notificationBadge" hidden>0</span>
+      </button>
+    </aside>
+
+    <div class="settings-modal" id="settingsModal" hidden>
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <header><div><small>PINDo PREFERENCES</small><strong id="settingsTitle">设置</strong></div><button id="closeSettings" aria-label="关闭设置">×</button></header>
+        <div class="settings-panel" id="settingsPanel">
+          <label><span>当地语言字体<small>当前语言：中文 · 自动识别已预留</small></span><select id="localFontSelect"><option value="system">系统默认</option><option value="dingtalk">钉钉进步体</option><option value="muyao">沐瑶软笔手写体</option></select></label>
+          <label><span>英文字体</span><select id="englishFontSelect"><option value="nunito">Nunito</option><option value="segoe">Segoe UI</option><option value="system">System UI</option></select></label>
+          <div class="settings-row"><span>整体 UI 大小<small>字号、图标、标签和控件同步变化</small></span><div class="ui-size-segments"><button data-ui-size="small">小</button><button data-ui-size="medium">中</button><button data-ui-size="large">大</button></div></div>
+          <label class="dodo-size-setting"><span>Dodo 大小<small>50%—200%</small></span><output id="dodoSizeValue">100%</output><input id="dodoSizeRange" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+        </div>
+      </section>
+    </div>
+
+    <div class="text-toolbar" id="textToolbar" hidden role="toolbar" aria-label="文字格式">
+      <select data-text-command="font" aria-label="字体"><option value="nunito">Nunito</option><option value="dingtalk">钉钉进步体</option><option value="muyao">沐瑶软笔手写体</option></select>
+      <select data-text-command="size" aria-label="字号"><option value="10">10</option><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18" selected>18</option><option value="22">22</option><option value="28">28</option><option value="36">36</option><option value="44">44</option><option value="56">56</option></select>
+      <button data-text-command="color" title="文字颜色"><span class="text-color-mark">A</span></button>
+      <button data-text-command="bold" title="加粗"><strong>B</strong></button><button data-text-command="italic" title="斜体"><em>I</em></button>
+      <button data-text-command="underline" title="下划线"><u>U</u></button><button data-text-command="strike" title="删除线"><s>S</s></button>
+      <span class="toolbar-divider"></span><button data-text-command="bullet" title="项目符号" class="bullet-button">•≡</button>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script src="date-rules.cjs"></script>
+  <script src="dodo-rules.cjs"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

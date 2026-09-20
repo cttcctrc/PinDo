@@ -1,0 +1,20 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createControlHitTest } = require('./control-pointer.cjs');
+test('transparent control area passes through; mascot and open menu remain clickable', () => {
+  let cursor = { x: 110, y: 110 }, bounds = { x: 100, y: 100 }, calls = [];
+  const win = { isDestroyed: () => false, getBounds: () => bounds, setIgnoreMouseEvents: (ignore, options) => calls.push({ ignore, options }) };
+  const hit = createControlHitTest(win, { getCursorScreenPoint: () => cursor });
+  const mascot = { x: 157, y: 590, width: 116, height: 146 };
+  hit.update([mascot]); assert.equal(calls.at(-1).ignore, true);
+  cursor = { x: 300, y: 740 }; hit.refresh(); assert.equal(calls.at(-1).ignore, false);
+  const count = calls.length; hit.refresh(); assert.equal(calls.length, count);
+  cursor = { x: 200, y: 300 }; hit.refresh(); assert.equal(calls.at(-1).ignore, true);
+  hit.update([mascot, { x: 20, y: 100, width: 390, height: 400 }]); assert.equal(calls.at(-1).ignore, false);
+  hit.update([mascot]); assert.equal(calls.at(-1).ignore, true);
+  win.pindoGestureActive = true; hit.refresh(); assert.equal(calls.at(-1).ignore, false);
+  win.pindoGestureActive = false; hit.refresh(); assert.equal(calls.at(-1).ignore, true);
+  bounds = { x: -900, y: 0 }; cursor = { x: -700, y: 640 }; hit.refresh(); assert.equal(calls.at(-1).ignore, false);
+  hit.update([{ x: NaN, y: 0, width: 430, height: 760 }]); assert.equal(calls.at(-1).ignore, true);
+  assert.equal(calls.at(-1).options.forward, true);
+});
