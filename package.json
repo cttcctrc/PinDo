@@ -1,0 +1,70 @@
+{
+  "name": "pindo-notes-windows-prototype",
+  "version": "1.1.0-beta.6.8",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "check:desktop": "node scripts/check-desktop-ready.cjs",
+    "build:windows": "npm run test && npm run check:desktop && electron-builder --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release 1.1.0-beta.6.8",
+    "build:update-test": "npm run test && npm run check:desktop && electron-builder --config electron-builder.update-test.cjs --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release-update 1.1.0-beta.6.9",
+    "build:public": "npm run test && npm run check:desktop && electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.6.10",
+    "serve:update-test": "node scripts/local-update-server.cjs release-update 8787"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "electron": "43.7.0",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "com.pindo.notes",
+    "productName": "PinDo",
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/assets/dodo/reference/**",
+      "electron/*.cjs",
+      "electron/*.ps1",
+      "!electron/*.test.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/assets/pindo-logo.png",
+        "to": "pindo-logo.png"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "http://127.0.0.1:8787/",
+        "channel": "latest"
+      }
+    ],
+    "win": {
+      "icon": "dist/assets/pindo-logo.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "PinDo-Desktop-Test-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "asarUnpack": [
+      "electron/*.ps1"
+    ]
+  }
+}
