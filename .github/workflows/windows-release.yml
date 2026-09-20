@@ -1,0 +1,49 @@
+name: Build and publish PinDo for Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Test desktop application
+        run: npm test
+
+      - name: Check desktop architecture
+        run: npm run check:desktop
+
+      - name: Build and publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PINDO_RELEASE_VERSION: 1.1.0-beta.6.10
+        run: npx electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish always
+
+      - name: Preserve build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-windows-release
+          path: release-public/**
+          if-no-files-found: warn
+          retention-days: 14
