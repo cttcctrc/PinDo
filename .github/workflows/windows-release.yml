@@ -1,8 +1,6 @@
 name: Build and publish PinDo for Windows
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -30,6 +28,20 @@ jobs:
 
       - name: Check desktop architecture
         run: npm run check:desktop
+
+      - name: Ensure release tag exists
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v1.1.0-beta.6.10
+        run: |
+          git fetch --tags --force
+          if (-not (git tag --list $env:RELEASE_TAG)) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag $env:RELEASE_TAG $env:GITHUB_SHA
+            git push origin $env:RELEASE_TAG
+          }
 
       - name: Build and publish GitHub Release
         shell: pwsh
