@@ -1,6 +1,6 @@
 const pkg = require('./package.json');
 
-const version = process.env.PINDO_RELEASE_VERSION || '1.1.0-beta.6.12';
+const version = process.env.PINDO_RELEASE_VERSION || '1.1.0-beta.6.11';
 
 module.exports = {
   ...pkg.build,

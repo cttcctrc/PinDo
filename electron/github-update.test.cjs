@@ -16,7 +16,7 @@ test('production update feed targets the public PinDo GitHub repository', () => 
     releaseType: 'release'
   }]);
 
-  assert.equal(config.extraMetadata.version, '1.1.0-beta.6.12');
+  assert.equal(config.extraMetadata.version, '1.1.0-beta.6.11');
   assert.equal(config.directories.output, 'release-public');
 });
 

@@ -10,7 +10,7 @@
     "check:desktop": "node scripts/check-desktop-ready.cjs",
     "build:windows": "npm run test && npm run check:desktop && electron-builder --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release 1.1.0-beta.6.8",
     "build:update-test": "npm run test && npm run check:desktop && electron-builder --config electron-builder.update-test.cjs --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release-update 1.1.0-beta.6.9",
-    "build:public": "npm run test && npm run check:desktop && electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.6.12",
+    "build:public": "npm run test && npm run check:desktop && electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish never && node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.6.11",
     "serve:update-test": "node scripts/local-update-server.cjs release-update 8787"
   },
   "dependencies": {

@@ -14,11 +14,11 @@ function fixture() {
   const indexPath = '/tmp/pindo/index.html';
   const frame = { url: `${pathToFileURL(indexPath).href}?noteWindow=alpha` };
   const contents = { mainFrame: frame };
-  const fakeWin = { webContents: contents, isDestroyed: () => false, hideCalled: 0, hide() { this.hideCalled += 1; } };
+  const fakeWin = { webContents: contents, isDestroyed: () => false };
   const manager = { windows: new Map([['alpha', fakeWin]]), setBounds: (id, bounds) => ({ accepted: id === 'alpha', bounds }) };
   registerNoteIpc({ ipcMain, manager, store, indexPath,
     persist: serialized => writes.push(serialized), onUpdated: (...args) => notifications.push(args) });
-  return { handlers, writes, notifications, store, fakeWin, event: { sender: contents, senderFrame: frame } };
+  return { handlers, writes, notifications, store, event: { sender: contents, senderFrame: frame } };
 }
 
 test('a note window may read only its own note and update only that note', async () => {
@@ -62,15 +62,4 @@ test('native bounds changes use the verified note-window identity', () => {
   assert.equal(reply.value.accepted, true);
   const forged = {}; handlers.get('pindo:note-set-bounds')({ sender: event.sender, senderFrame: { url: 'https://evil.test' }, set returnValue(value) { forged.value = value; } }, { x: 1, y: 2, width: 3, height: 4 });
   assert.equal(forged.value.accepted, false);
-});
-
-test('archiving hides the native note synchronously so no ghost window remains', () => {
-  const { handlers, store, fakeWin, event } = fixture();
-  const snapshot = store.snapshot('alpha'); snapshot.note.mode = 'bookmark';
-  let result;
-  handlers.get('pindo:note-update')({ ...event, set returnValue(value) { result = value; } }, snapshot.version, snapshot.note);
-  assert.equal(result.accepted, true);
-  assert.equal(fakeWin.hideCalled, 1);
-  assert.equal(fakeWin.pindoParked, true);
-  assert.equal(store.snapshot('alpha').note.mode, 'bookmark');
 });

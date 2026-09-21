@@ -44,8 +44,7 @@
     app: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>',
     viewGrid: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>',
     viewList: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="5" cy="6" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="18" r="1"/></svg>',
-    itemSize: '<svg viewBox="0 0 24 24"><rect x="4" y="10" width="10" height="10" rx="2"/><path d="M10 4h10v10M14 4h6v6"/></svg>',
-    organize: '<svg viewBox="0 0 24 24"><path d="M7 6h13M7 12h13M7 18h13"/><path d="m3 5 1 1 2-2M3 11l1 1 2-2M3 17l1 1 2-2"/></svg>'
+    itemSize: '<svg viewBox="0 0 24 24"><rect x="4" y="10" width="10" height="10" rx="2"/><path d="M10 4h10v10M14 4h6v6"/></svg>'
   };
 
   const desktop = document.querySelector("#desktop");
@@ -76,8 +75,6 @@
   let activeTextRange = null;
   let activeEditor = null;
   let activeNote = null;
-  let todayExpanded = false;
-  const organizerEditNotes = new Set();
   let focusedNoteId = null;
   let pinnedCaptureData = null;
   let pendingNoteEntrance = null;
@@ -604,7 +601,7 @@
     note.pinEnabled ??= true;
     const parentLink = attachmentByChild(note.id), rootNote = attachmentRoot(note.id) || note;
     const effectiveLocked = Boolean(rootNote.pinEnabled && rootNote.locked);
-    el.className = `note ${effectiveLocked ? "is-locked" : ""} ${parentLink ? "is-attached-child" : ""} ${focusedNoteId === note.id ? "focused" : ""} ${organizerEditNotes.has(note.id) ? "organizer-sorting" : ""}`; el.dataset.id = note.id; el.dataset.mode = note.mode; el.dataset.type = note.type; el.dataset.organizerSize = note.organizerItemSize || "medium"; el.dataset.organizerView = note.organizerView || "grid";
+    el.className = `note ${effectiveLocked ? "is-locked" : ""} ${parentLink ? "is-attached-child" : ""} ${focusedNoteId === note.id ? "focused" : ""}`; el.dataset.id = note.id; el.dataset.mode = note.mode; el.dataset.type = note.type; el.dataset.organizerSize = note.organizerItemSize || "medium"; el.dataset.organizerView = note.organizerView || "grid";
     const pinColor = note.pinColor || PIN_COLORS[Math.max(0, COLORS.indexOf(note.color)) % PIN_COLORS.length];
     note.icon ||= "dot"; note.iconColor ||= pinColor;
     const typeTool = note.type === "quick" ? `<button data-action="capture" class="type-tool-button" title="截图识别文字">${icons.scan}</button>` : note.type === "todo" || note.type === "timeline" ? `<button data-action="sort-time" class="type-tool-button" title="按时间从早到晚排序">${icons.sort}</button>` : "";
@@ -616,7 +613,7 @@
       <header class="note-header">
         <div class="note-title-wrap">${organizer ? `<span class="organizer-title-icon">${icons.folder}</span>` : `<button class="note-kind-mark note-icon" title="更换标题图标">${noteIcon(note.icon)}</button>`}<div class="note-title" contenteditable="false" spellcheck="false" aria-label="便签标题" data-placeholder="双击输入标题" title="双击编辑 · 最多30个字符">${note.titleHtml || escapeHtml(note.title || "")}</div></div>
         <div class="note-controls">
-          ${organizer ? `<button data-action="organizer-edit" class="${organizerEditNotes.has(note.id) ? "active" : ""}" title="${organizerEditNotes.has(note.id) ? "完成整理" : "整理快捷方式"}">${icons.organize}</button><button data-action="organizer-size" title="图标大小：${({ small: "小", medium: "中", large: "大" })[note.organizerItemSize || "medium"]}">${icons.itemSize}</button><button data-action="organizer-view" title="切换为${note.organizerView === "list" ? "图标" : "列表"}显示">${note.organizerView === "list" ? icons.viewGrid : icons.viewList}</button>` : `${typeTool}<button data-action="collapse" class="archive-button" title="收纳到右侧">${icons.archive}</button>`}
+          ${organizer ? `<button data-action="organizer-size" title="图标大小：${({ small: "小", medium: "中", large: "大" })[note.organizerItemSize || "medium"]}">${icons.itemSize}</button><button data-action="organizer-view" title="切换为${note.organizerView === "list" ? "图标" : "列表"}显示">${note.organizerView === "list" ? icons.viewGrid : icons.viewList}</button>` : `${typeTool}<button data-action="collapse" class="archive-button" title="收纳到右侧">${icons.archive}</button>`}
           <button data-action="trash" class="trash-button" title="移入回收站">${icons.trash}</button>
           ${organizer ? "" : `<button data-action="menu" title="更多">${icons.menu}</button>`}
         </div>
@@ -645,50 +642,23 @@
     if (note.type === "organizer") renderOrganizer(body, note);
   }
 
-  function refreshOrganizer(note) {
-    const el = noteLayer.querySelector(`[data-id="${note.id}"]`);
-    if (!el) { render(); return; }
-    el.classList.toggle("organizer-sorting", organizerEditNotes.has(note.id));
-    el.dataset.organizerSize = note.organizerItemSize || "medium";
-    el.dataset.organizerView = note.organizerView || "grid";
-    const editButton = el.querySelector("[data-action=organizer-edit]");
-    if (editButton) {
-      editButton.classList.toggle("active", organizerEditNotes.has(note.id));
-      editButton.title = organizerEditNotes.has(note.id) ? "完成整理" : "整理快捷方式";
-    }
-    const sizeButton = el.querySelector("[data-action=organizer-size]");
-    if (sizeButton) sizeButton.title = `图标大小：${({ small: "小", medium: "中", large: "大" })[note.organizerItemSize || "medium"]}`;
-    const viewButton = el.querySelector("[data-action=organizer-view]");
-    if (viewButton) {
-      viewButton.title = `切换为${note.organizerView === "list" ? "图标" : "列表"}显示`;
-      viewButton.innerHTML = note.organizerView === "list" ? icons.viewGrid : icons.viewList;
-    }
-    renderOrganizer(el.querySelector(".note-body"), note);
-    save();
-  }
-
   function renderOrganizer(body, note) {
     note.desktopItems ||= [];
     body.innerHTML = `<div class="organizer-drop-zone"><div class="organizer-grid"></div><div class="organizer-empty" ${note.desktopItems.length ? "hidden" : ""}><span>${icons.folder}</span><strong>拖入快捷方式、文件或文件夹</strong><small>在 Windows 安装版中可直接打开</small></div></div>`;
     const zone = body.querySelector(".organizer-drop-zone"), grid = body.querySelector(".organizer-grid");
     note.desktopItems.forEach(item => {
       const card = document.createElement("button"); card.className = "organizer-item"; card.dataset.desktopItem = item.id;
-      card.innerHTML = `<span class="organizer-item-icon">${item.icon ? `<img src="${attr(item.icon)}" alt="">` : item.kind === "folder" ? '<span class="organizer-folder-glyph" aria-hidden="true">📁</span>' : item.kind === "app" ? icons.app : icons.file}</span><strong>${escapeHtml(item.name)}</strong>${organizerEditNotes.has(note.id) ? '<span class="organizer-remove" title="从桌面整理中移除" aria-label="从桌面整理中移除">×</span>' : ''}`;
+      card.innerHTML = `<span class="organizer-item-icon">${item.icon ? `<img src="${attr(item.icon)}" alt="">` : item.kind === "folder" ? '<span class="organizer-folder-glyph" aria-hidden="true">📁</span>' : item.kind === "app" ? icons.app : icons.file}</span><strong>${escapeHtml(item.name)}</strong>`;
       card.addEventListener("click", async event => {
-        event.stopPropagation();
-        if (event.target.closest(".organizer-remove")) { note.desktopItems = note.desktopItems.filter(entry => entry.id !== item.id); refreshOrganizer(note); showToast("已从桌面整理中移除，原文件不受影响"); return; }
-        if (card.dataset.justDragged || organizerEditNotes.has(note.id)) return;
+        event.stopPropagation(); if (card.dataset.justDragged) return;
         if (!noteWindowId) { showNearTip(card, "请在 Windows 版本打开本地项目"); return; }
         const result = await window.pindoNative.command("open-item", item.id);
         if (result?.error) showNearTip(card, result.error);
       });
       card.addEventListener("contextmenu", event => {
         event.preventDefault(); event.stopPropagation();
-        showMiniPopover(card, '<button data-reveal-organizer-item>打开文件所在位置</button><button data-remove-organizer-item>从桌面整理中移除</button>', pop => {
-          pop.addEventListener("click", async click => {
-            if (click.target.closest("[data-reveal-organizer-item]")) { const result = await window.pindoNative.command("reveal-item", item.id); if (result?.error) showNearTip(card, result.error); pop.remove(); return; }
-            if (!click.target.closest("[data-remove-organizer-item]")) return; note.desktopItems = note.desktopItems.filter(entry => entry.id !== item.id); pop.remove(); refreshOrganizer(note); showToast("已从桌面整理中移除，原文件不受影响");
-          });
+        showMiniPopover(card, '<button data-remove-organizer-item>从桌面整理中移除</button>', pop => {
+          pop.addEventListener("click", click => { if (!click.target.closest("[data-remove-organizer-item]")) return; note.desktopItems = note.desktopItems.filter(entry => entry.id !== item.id); pop.remove(); render(); showToast("快捷方式已移除，原文件不受影响"); });
         });
       });
       enableOrganizerItemReorder(card, note, item); grid.appendChild(card);
@@ -698,7 +668,6 @@
     zone.addEventListener("dragleave", event => { if (!zone.contains(event.relatedTarget)) zone.classList.remove("drag-over"); });
     zone.addEventListener("drop", async event => {
       event.preventDefault(); event.stopPropagation(); zone.classList.remove("drag-over");
-      if (organizerEditNotes.has(note.id)) return;
       if(noteWindowId){
         const paths=[...(event.dataTransfer?.files||[])].map(file=>window.pindoNative.pathForFile(file)).filter(Boolean);
         if(!paths.length){showNearTip(zone,"没有取得文件路径，请从 Windows 文件资源管理器拖入");return;}
@@ -728,13 +697,16 @@
 
   function enableOrganizerItemReorder(card, note, item) {
     card.addEventListener("pointerdown", event => {
-      if (event.button !== 0 || !organizerEditNotes.has(note.id) || event.target.closest(".organizer-remove")) return;
+      if (event.button !== 0) return;
       const startX = event.clientX, startY = event.clientY, rect = card.getBoundingClientRect();
-      let ghost = null, target = null, insertAfter = false;
+      let ghost = null, target = null, insertAfter = false, reorderReady = false;
+      card.setPointerCapture(event.pointerId);
+      const holdTimer = setTimeout(() => { reorderReady = true; card.classList.add("is-reorder-ready"); }, 1000);
       const clear = () => { target?.classList.remove("organizer-drop-before", "organizer-drop-after"); target = null; };
       const move = pointer => {
+        if (!reorderReady) { if (Math.hypot(pointer.clientX - startX, pointer.clientY - startY) > 7) clearTimeout(holdTimer); return; }
         if (!ghost && Math.hypot(pointer.clientX - startX, pointer.clientY - startY) < 5) return;
-        if (!ghost) { card.setPointerCapture(event.pointerId); card.dataset.justDragged = "true"; ghost = card.cloneNode(true); ghost.querySelector(".organizer-remove")?.remove(); ghost.className = "organizer-item organizer-item-ghost"; ghost.style.width = `${rect.width}px`; document.body.appendChild(ghost); card.classList.add("organizer-item-source"); }
+        if (!ghost) { card.dataset.justDragged = "true"; ghost = card.cloneNode(true); ghost.className = "organizer-item organizer-item-ghost"; ghost.style.width = `${rect.width}px`; document.body.appendChild(ghost); card.classList.add("organizer-item-source"); }
         ghost.style.left = `${pointer.clientX - rect.width / 2}px`; ghost.style.top = `${pointer.clientY - rect.height / 2}px`; clear();
         const candidate = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest(".organizer-item");
         if (!candidate || candidate === card || candidate.closest(".note")?.dataset.id !== note.id) return;
@@ -742,12 +714,12 @@
         target.classList.add(insertAfter ? "organizer-drop-after" : "organizer-drop-before");
       };
       const up = () => {
-        setTimeout(() => delete card.dataset.justDragged, 150);
+        clearTimeout(holdTimer); setTimeout(() => delete card.dataset.justDragged, 150); card.classList.remove("is-reorder-ready");
         card.removeEventListener("pointermove", move); card.removeEventListener("pointerup", up); card.removeEventListener("pointercancel", up);
         if (!ghost) return; const targetId = target?.dataset.desktopItem; clear(); ghost.remove(); card.classList.remove("organizer-item-source");
         if (!targetId) return; const from = note.desktopItems.findIndex(entry => entry.id === item.id); if (from < 0) return;
         const [moving] = note.desktopItems.splice(from, 1), targetIndex = note.desktopItems.findIndex(entry => entry.id === targetId);
-        note.desktopItems.splice(targetIndex + (insertAfter ? 1 : 0), 0, moving); refreshOrganizer(note); showToast("桌面项目顺序已调整");
+        note.desktopItems.splice(targetIndex + (insertAfter ? 1 : 0), 0, moving); render(); showToast("桌面项目顺序已调整");
       };
       card.addEventListener("pointermove", move); card.addEventListener("pointerup", up); card.addEventListener("pointercancel", up);
     });
@@ -1046,14 +1018,9 @@
     el.querySelector("[data-action=template-switch]")?.addEventListener("click", e => { e.stopPropagation(); if (note.userEdited) { showNearTip(e.currentTarget, "需要空白内容才能切换模板"); return; } showTemplateMenu(e.currentTarget, note); });
     el.querySelector("[data-action=organizer-size]")?.addEventListener("click", e => {
       e.stopPropagation(); const sizes = ["small", "medium", "large"], next = sizes[(sizes.indexOf(note.organizerItemSize || "medium") + 1) % sizes.length];
-      note.organizerItemSize = next; refreshOrganizer(note); showToast(`桌面项目大小：${({ small: "小", medium: "中", large: "大" })[next]}`);
+      note.organizerItemSize = next; render(); showToast(`桌面项目大小：${({ small: "小", medium: "中", large: "大" })[next]}`);
     });
-    el.querySelector("[data-action=organizer-edit]")?.addEventListener("click", e => {
-      e.stopPropagation();
-      if (organizerEditNotes.has(note.id)) organizerEditNotes.delete(note.id); else organizerEditNotes.add(note.id);
-      refreshOrganizer(note); showToast(organizerEditNotes.has(note.id) ? "整理模式：拖动排序或点击×移除" : "已完成整理");
-    });
-    el.querySelector("[data-action=organizer-view]")?.addEventListener("click", e => { e.stopPropagation(); note.organizerView = note.organizerView === "list" ? "grid" : "list"; refreshOrganizer(note); showToast(note.organizerView === "list" ? "已切换为列表显示" : "已切换为图标显示"); });
+    el.querySelector("[data-action=organizer-view]")?.addEventListener("click", e => { e.stopPropagation(); note.organizerView = note.organizerView === "list" ? "grid" : "list"; render(); showToast(note.organizerView === "list" ? "已切换为列表显示" : "已切换为图标显示"); });
     el.querySelector("[data-action=trash]").addEventListener("click", e => { e.stopPropagation(); if (noteWindowId) { window.pindoNative.command("trash"); } else if (confirm("删除这个便签？删除后可从回收站恢复。")) moveNoteToRecycleBin(note); });
     el.querySelector("[data-action=menu]")?.addEventListener("click", e => { e.stopPropagation(); showNoteMenu(e.currentTarget, note); });
     enableDrag(el, el.querySelector(".note-header"), note);
@@ -1258,8 +1225,9 @@
   }
 
   function findVerticalSnap(note, x, y, movingIds) {
+    if (note.type === "organizer") return null;
     const threshold = 20, candidates = [];
-    state.notes.filter(target => target.mode !== "bookmark" && !movingIds.has(target.id)).forEach(target => {
+    state.notes.filter(target => target.type !== "organizer" && target.mode !== "bookmark" && !movingIds.has(target.id)).forEach(target => {
       const horizontalOverlap = Math.min(x + note.w, target.x + target.w) - Math.max(x, target.x);
       if (horizontalOverlap > 34) {
         if (!attachmentByChild(target.id) && !directChildId(note.id) && !attachedTreeIds(note.id).includes(target.id)) {
@@ -1717,24 +1685,6 @@
     save(); updateTextToolbar();
   }
 
-  function persistActiveEditor() {
-    if (!activeEditor || !activeNote) return;
-    if (activeEditor.classList.contains("note-title")) { activeNote.title = activeEditor.innerText.trim(); activeNote.titleHtml = activeEditor.innerHTML; }
-    else if (activeEditor.matches(".todo-text,.timeline-text")) {
-      const item = activeEditor.matches(".todo-text") ? activeNote.todos.find(item => item.id === activeEditor.closest(".todo-row").dataset.todo) : activeNote.events.find(item => item.id === activeEditor.closest(".timeline-row").dataset.eventId);
-      if (item) { item.text = activeEditor.innerText; item.textHtml = activeEditor.innerHTML; }
-    } else { activeNote.content = activeEditor.innerText; activeNote.contentHtml = activeEditor.innerHTML; }
-    save(); updateTextToolbar();
-  }
-
-  function toggleSelectedFormat(command) {
-    if (!activeTextRange || !activeEditor || !activeNote) return;
-    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(activeTextRange);
-    document.execCommand(command, false, null);
-    if (selection.rangeCount) activeTextRange = selection.getRangeAt(0).cloneRange();
-    persistActiveEditor();
-  }
-
   function showSelectionColorMenu(anchor) {
     showMiniPopover(anchor, `<div class="palette text-palette">${TEXT_COLORS.map(color => `<button style="background:${color}" data-selection-color="${color}" title="${color}"></button>`).join("")}</div>`, pop => {
       pop.addEventListener("pointerdown", e => e.preventDefault());
@@ -1746,10 +1696,10 @@
   textToolbar.addEventListener("pointerdown", event => { if (event.target.closest("button")) event.preventDefault(); });
   textToolbar.addEventListener("click", event => {
     const command = event.target.closest("[data-text-command]")?.dataset.textCommand; if (!command) return;
-    if (command === "bold") toggleSelectedFormat("bold");
-    if (command === "italic") toggleSelectedFormat("italic");
-    if (command === "underline") toggleSelectedFormat("underline");
-    if (command === "strike") toggleSelectedFormat("strikeThrough");
+    if (command === "bold") applySelectedStyle({ fontWeight: "700" });
+    if (command === "italic") applySelectedStyle({ fontStyle: "italic" });
+    if (command === "underline") applySelectedStyle({ textDecoration: "underline" });
+    if (command === "strike") applySelectedStyle({ textDecoration: "line-through" });
     if (command === "bullet" && activeEditor?.classList.contains("quick-editor")) {
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(activeTextRange); document.execCommand("insertUnorderedList");
       activeNote.content = activeEditor.innerText; activeNote.contentHtml = activeEditor.innerHTML; save(); updateTextToolbar();
@@ -1783,8 +1733,7 @@
     notificationBadge.hidden = items.length === 0; notificationBadge.textContent = items.length > 99 ? "99+" : items.length;
     todaySummary.textContent = `${items.length} 项`;
     assistantGreeting.textContent = assistantGreetingText(items.length);
-    const visibleTodayItems = todayExpanded ? items : items.slice(0, 4);
-    assistantTodos.innerHTML = items.length ? `${visibleTodayItems.map(({ type, note, item, text, time }) => `<button data-jump-note="${attr(note.id)}" data-jump-item="${attr(item.id)}" data-jump-type="${type}"><span></span><b>${escapeHtml(text)}</b><time>${escapeHtml(time)}</time></button>`).join("")}${items.length > 4 ? `<button class="today-expand" data-toggle-today><b>${todayExpanded ? "收起" : `展开其余 ${items.length - 4} 项`}</b><time>${todayExpanded ? "⌃" : "⌄"}</time></button>` : ""}` : '<div class="today-empty">今天暂时没有待办</div>';
+    assistantTodos.innerHTML = items.length ? items.slice(0, 4).map(({ type, note, item, text, time }) => `<button data-jump-note="${attr(note.id)}" data-jump-item="${attr(item.id)}" data-jump-type="${type}"><span></span><b>${escapeHtml(text)}</b><time>${escapeHtml(time)}</time></button>`).join("") : '<div class="today-empty">今天暂时没有待办</div>';
     recycleSummary.textContent = `${state.recycleBin.length} 个便签`;
     recycleList.innerHTML = state.recycleBin.length
       ? `${state.recycleBin.map(note => `<div class="recycle-row"><span>${noteIcon(note.icon)}</span><strong title="${attr(note.title || "未命名便签")}">${escapeHtml(shortTitle(note.title || "未命名便签"))}</strong><button data-restore-note="${note.id}">恢复</button><button data-purge-note="${note.id}" class="purge-button" title="永久删除">×</button></div>`).join("")}<button class="empty-recycle" data-empty-recycle>清空回收站</button>`
@@ -1942,11 +1891,8 @@
   });
   assistantMascot.addEventListener("click", event => {
     event.stopPropagation(); if (assistantWasDragged) { assistantWasDragged = false; return; }
-    settingsModal.hidden = true;
     if (state.assistant.tucked) expandDodo();
     else playDodoAnimation("pet_response", { priority: 4 });
-    const opening = assistantPanel.hidden;
-    if (opening) todayExpanded = false;
     renderAssistant();
     if (!dodoNudge.hidden) return;
     assistantPanel.hidden = !assistantPanel.hidden;
@@ -2002,7 +1948,6 @@
     if (event.target.closest("[data-empty-recycle]") && confirm("确定永久删除回收站中的全部便签吗？")) { state.recycleBin = []; render(); showToast("回收站已清空"); }
   });
   assistantTodos.addEventListener("click", event => {
-    if (event.target.closest("[data-toggle-today]")) { todayExpanded = !todayExpanded; renderAssistant(); return; }
     const button = event.target.closest("[data-jump-note]"); if (!button) return;
     const note = noteById(button.dataset.jumpNote); if (note?.mode === "bookmark") note.mode = note.previousMode || "desktop";
     focusedNoteId = button.dataset.jumpNote; assistantPanel.hidden = true; render();
@@ -2016,7 +1961,7 @@
   });
   document.querySelector("#profileButton").addEventListener("click", () => showToast("账户资料入口已预留"));
   document.querySelector("#cloudButton").addEventListener("click", () => showToast("云同步与付费能力将在后续版本开放"));
-  document.addEventListener("click", event => { if (!assistant.contains(event.target)) { assistantPanel.hidden = true; todayExpanded = false; } });
+  document.addEventListener("click", event => { if (!assistant.contains(event.target)) assistantPanel.hidden = true; });
   desktop.addEventListener("pointerdown", event => {
     if (event.target.closest(".note, .bookmark, .assistant")) return;
     focusedNoteId = null;

@@ -11,7 +11,7 @@ function normalizeGroups(state) {
   const accepted = [];
   for (const link of state.attachments || []) {
     const p = notes.get(link.parentId), c = notes.get(link.childId);
-    if (!p || !c || p === c || p.mode === 'bookmark' || c.mode === 'bookmark') continue;
+    if (!p || !c || p === c || p.type === 'organizer' || c.type === 'organizer' || p.mode === 'bookmark' || c.mode === 'bookmark') continue;
     if (accepted.some(l => l.parentId === p.id || l.childId === c.id)) continue;
     if (descendants({ attachments: accepted }, c.id).includes(p.id)) continue;
     accepted.push(link);
@@ -29,10 +29,10 @@ function normalizeGroups(state) {
 }
 function findSnap(state, id, bounds, movingIds) {
   const n = state.notes.find(n => n.id === id);
-  if (!n) return null;
+  if (!n || n.type === 'organizer') return null;
   const choices = [];
   for (const other of state.notes) {
-    if (movingIds.includes(other.id) || other.mode === 'bookmark') continue;
+    if (movingIds.includes(other.id) || other.type === 'organizer' || other.mode === 'bookmark') continue;
     if (Math.min(bounds.x + bounds.width, other.x + other.w) - Math.max(bounds.x, other.x) < 40) continue;
     if (!(state.attachments || []).some(l => l.parentId === other.id)) {
       choices.push({ parentId: other.id, childId: id, targetId: other.id, edge: 'bottom', gap: Math.abs(bounds.y - (other.y + other.h - TOP_SPACE)) });
