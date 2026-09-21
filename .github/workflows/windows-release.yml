@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: v1.1.0-beta.6.12
+          RELEASE_TAG: v1.1.0-beta.6.13
         run: |
           git fetch --tags --force
           if (-not (git tag --list $env:RELEASE_TAG)) {
@@ -46,20 +46,20 @@ jobs:
       - name: Build Windows release files
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.6.12
+          PINDO_RELEASE_VERSION: 1.1.0-beta.6.13
         run: |
           npx electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish never
-          node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.6.12
+          node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.6.13
 
       - name: Publish complete GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: v1.1.0-beta.6.12
+          RELEASE_TAG: v1.1.0-beta.6.13
         run: |
           gh release view $env:RELEASE_TAG 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --target $env:GITHUB_SHA --title "PinDo 1.1.0 beta 6.12" --notes "Note and Desktop Organizer interaction stability release. Existing PinDo notes and settings are preserved."
+            gh release create $env:RELEASE_TAG --target $env:GITHUB_SHA --title "PinDo 1.1.0 beta 6.13" --notes "Native note bounds, vertical snapping, side preview and Pin interaction stability release. Existing PinDo notes and settings are preserved."
           }
 
           $assets = Get-ChildItem "release-public" -File | Where-Object {
