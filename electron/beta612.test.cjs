@@ -30,7 +30,7 @@ test('desktop organizer participates in vertical snapping', () => {
     { id: 'top', type: 'organizer', mode: 'desktop', x: 10, y: 10, w: 360, h: 260 },
     { id: 'bottom', type: 'quick', mode: 'desktop', x: 12, y: 500, w: 360, h: 260 }
   ], attachments: [] };
-  assert.equal(findSnap(state, 'bottom', { x: 12, y: 240, width: 360, height: 260 }, ['bottom']).parentId, 'top');
+  assert.equal(findSnap(state, 'bottom', { x: 12, y: 270, width: 360, height: 260 }, ['bottom']).parentId, 'top');
 });
 
 test('native note no longer reserves a transparent black strip above the card', () => {

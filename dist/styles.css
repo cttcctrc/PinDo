@@ -1598,7 +1598,8 @@ body.control-window-mode .assistant-panel {
 body.control-window-mode .dodo-nudge { z-index: 30; pointer-events: auto; }
 
 /* Native note surface reserves transparent space for the raised pin. */
-body.note-window-mode .note { top: 32px !important; height: calc(100% - 32px) !important; overflow: visible; }
+body.note-window-mode .note { top: 0 !important; height: 100% !important; overflow: hidden; }
+body.note-window-mode .pushpin-button { display: none !important; }
 /* A native transparent window must not cast CSS pixels outside its rounded
    note. An inner edge keeps separation without exposing a rectangular host. */
 body.note-window-mode .note,

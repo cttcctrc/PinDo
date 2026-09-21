@@ -114,6 +114,11 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       if(!item?.path || !path.isAbsolute(item.path))return {error:'旧项目没有保存本地路径，请重新拖入一次'};
       try{const error=await shell.openPath(item.path);return error?{error}:{accepted:true};}catch{return {error:'无法打开该项目，请检查文件是否已移动'};}
     }
+    if(action==='reveal-item' && kind==='note'){
+      const note=store.state.notes.find(n=>n.id===id),item=note?.type==='organizer'&&note.desktopItems?.find(i=>i.id===value);
+      if(!item?.path || !path.isAbsolute(item.path))return {error:'旧项目没有保存本地路径，请重新拖入一次'};
+      try{shell.showItemInFolder(item.path);return {accepted:true};}catch{return {error:'无法打开文件所在位置'};}
+    }
     if(kind==='note' && action==='capture')return capture.start(event,id);
     if(kind==='note' && action==='pin-capture')return capture.pin(event,value);
     if(kind==='note' && action==='ocr-capture')return capture.ocr(event,value);

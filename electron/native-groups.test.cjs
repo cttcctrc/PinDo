@@ -5,12 +5,12 @@ const note=(id,x,y,w=350,h=300)=>({id,type:'quick',mode:'desktop',x,y,w,h,locked
 test('native vertical groups keep equal width, independent heights, lock propagation, and reject cycles',()=>{
  const state={notes:[note('a',50,50,400,320),note('b',500,0,300,260),note('c',800,0,280,210)],attachments:[{parentId:'a',childId:'b'},{parentId:'b',childId:'c'},{parentId:'c',childId:'a'}]};
  state.notes[0].locked=true;normalizeGroups(state);
- assert.equal(state.attachments.length,2);assert.deepEqual(state.notes.map(n=>[n.x,n.y,n.w,n.h,n.locked]),[[50,50,400,320,true],[50,338,400,260,true],[50,566,400,210,true]]);
+ assert.equal(state.attachments.length,2);assert.deepEqual(state.notes.map(n=>[n.x,n.y,n.w,n.h,n.locked]),[[50,50,400,320,true],[50,370,400,260,true],[50,630,400,210,true]]);
 });
 test('snap only matches vertical seams, not left/right contact',()=>{
  const state={notes:[note('a',0,0),note('b',600,500)],attachments:[]};
  assert.equal(findSnap(state,'b',{x:350,y:0,width:350,height:300},['b']),null);
- assert.equal(findSnap(state,'b',{x:12,y:270,width:350,height:300},['b']).parentId,'a');
+ assert.equal(findSnap(state,'b',{x:12,y:300,width:350,height:300},['b']).parentId,'a');
 });
 test('group drag commits latest text, detach restores free movement, and resize keeps child height',()=>{
  const store=new NoteStateStore({notes:[note('a',50,50),note('b',50,318,350,240)],attachments:[{parentId:'a',childId:'b'}]});
