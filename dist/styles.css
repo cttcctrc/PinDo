@@ -1598,7 +1598,7 @@ body.control-window-mode .assistant-panel {
 body.control-window-mode .dodo-nudge { z-index: 30; pointer-events: auto; }
 
 /* Native note surface reserves transparent space for the raised pin. */
-body.note-window-mode .note { top: 32px !important; height: calc(100% - 32px) !important; overflow: visible; }
+body.note-window-mode .note { top: 0 !important; height: 100% !important; overflow: hidden; }
 /* A native transparent window must not cast CSS pixels outside its rounded
    note. An inner edge keeps separation without exposing a rectangular host. */
 body.note-window-mode .note,
@@ -1615,7 +1615,7 @@ body.note-window-mode .pushpin-button,
 body.note-window-mode .pushpin-button.raised, body.note-window-mode .pushpin-button.inserted,
 body.note-window-mode .pushpin-button:hover, body.note-window-mode .pushpin-button.raised:hover,
 body.note-window-mode .pushpin-button.inserted:hover {
-  top: -30px; left: auto; right: 26px; width: 54px; height: 54px; min-width: 54px;
+  top: 0; left: auto; right: 26px; width: 54px; height: 54px; min-width: 54px;
   transform: none !important; z-index: 50;
 }
 body.note-window-mode .note-header { padding-top: 28px; }
@@ -1631,6 +1631,11 @@ body.note-window-mode .text-toolbar select:first-child { width: 110px; }
 .note.native-snap-top::after { top: 0; } .note.native-snap-bottom::after { bottom: 0; }
 .organizer-item-icon img { width: 100%; height: 100%; object-fit: contain; }
 .organizer-folder-glyph{font-family:"Segoe UI Emoji","Segoe UI Symbol",sans-serif;font-size:34px;line-height:1;filter:none}
+.organizer-sorting .organizer-item { cursor: move; }
+.organizer-remove { position:absolute;z-index:4;right:3px;top:3px;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;background:#17191e;color:#fff;font:700 14px/1 "Segoe UI",sans-serif;box-shadow:0 3px 8px #0005; }
+.organizer-sorting .organizer-item:hover { background:rgba(90,132,218,.16);box-shadow:inset 0 0 0 1px rgba(105,149,232,.42); }
+.assistant-todos .today-expand { grid-template-columns:1fr auto;margin-top:4px;padding:8px 7px;border-top:1px solid rgba(80,65,60,.08);color:#687080; }
+.assistant-todos .today-expand b { text-align:left; }
 
 body.control-window-mode .assistant.tucked .mascot-button { width: calc(98px * var(--dodo-scale)) !important; transform: none !important; }
 body.control-window-mode .assistant.tucked-right .mascot-button { left: auto !important; right: 0 !important; }
@@ -1702,3 +1707,6 @@ body.control-window-mode .settings-modal{background:transparent!important;backdr
 body.control-window-mode .settings-dialog{pointer-events:auto}
 .dodo-state-ghost{position:absolute;left:50%;bottom:calc(-8px * var(--dodo-scale));width:calc(184px * var(--dodo-scale));height:calc(184px * var(--dodo-scale));transform:translateX(-50%);object-fit:contain;pointer-events:none;z-index:3;animation:dodoGhostOut .3s ease forwards}
 @keyframes dodoGhostOut{from{opacity:1}to{opacity:0}}
+
+/* beta 6.12: line paper starts at the first text row with no faded gap. */
+.quick-editor.ruled { background-image:linear-gradient(to bottom,transparent calc(100% - 1px),rgba(40,40,45,.11) 1px);background-size:100% 1.75em;background-position:0 0; }

@@ -107,7 +107,7 @@ class NoteWindowManager {
 
   activate(id) {
     const selected=this.windows.get(id);
-    if(selected?.pindoNoteType==='organizer'){this.setActive(id,false);return;}
+    if(selected?.pindoNoteType==='organizer'){selected.webContents.focus();return;}
     for(const [other,win] of this.windows)if(other!==id && win.pindoActive)this.setActive(other,false);
     this.setActive(id,true);
     const win=this.windows.get(id);if(win&&!win.isDestroyed())win.moveTop();

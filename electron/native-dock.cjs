@@ -26,12 +26,13 @@ class NativeDock {
     this.window.webContents.send('pindo:dock-state', this.cards);
     this.window.showInactive();
   }
-  setHovered(active) {
-    if (!active || this.window.isDestroyed() || !this.window.isVisible()) return;
+  async setHovered(active) {
+    if (this.window.isDestroyed() || !this.window.isVisible()) return;
     // The dock stays attached to the desktop layer. Raising it here only
     // changes the order among desktop children, so its preview clears note
     // windows without becoming an always-on-top overlay above other apps.
-    this.window.moveTop();
+    if(active){this.window.setAlwaysOnTop(true,'floating');this.window.moveTop();}
+    else{this.window.setAlwaysOnTop(false);await attachToWindowsDesktop(this.window);}
   }
 }
 module.exports={NativeDock};

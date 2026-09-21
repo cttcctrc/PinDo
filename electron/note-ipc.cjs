@@ -30,6 +30,10 @@ function registerNoteIpc({ ipcMain, manager, store, getStore = () => store, inde
     if (size > 2_000_000) return { accepted: false, reason: 'too-large' };
     const result = currentStore.update(id, version, proposed);
     if (result.accepted) {
+      if (proposed?.mode === 'bookmark') {
+        const win = manager.windows.get(id);
+        if (win && !win.isDestroyed()) { win.pindoParked = true; win.pindoParkedAt = Date.now(); win.hide(); }
+      }
       persist(currentStore.serialize());
       setImmediate(() => onUpdated(id, result.current));
     }
