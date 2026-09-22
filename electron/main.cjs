@@ -13,9 +13,11 @@ const { registerWindowGesture } = require('./window-gesture.cjs');
 const { ResizePreview } = require('./resize-preview.cjs');
 const { parseState, createBackup, newestValidBackup, listBackups } = require('./state-backup.cjs');
 const { CloudSyncManager } = require('./cloud-sync.cjs');
+const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 
 app.setName('PinDo');
 if (process.platform === 'win32') app.setAppUserModelId('com.pindo.notes');
+const compatibilityState = prepareCompatibility(app);
 
 let mainWindow;
 let tray;
@@ -31,6 +33,7 @@ let noteWindowManager;
 let nativeFeatures;
 let resizePreview;
 let cloudSync;
+let diagnostics;
 
 const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 const indexUrl = pathToFileURL(indexPath).href;
@@ -105,6 +108,28 @@ async function importData() {
   } catch { return { accepted: false, error: '导入失败：文件不是有效的 PinDo 数据，现有数据未改变。' }; }
 }
 
+async function exportDiagnostics() {
+  const result = await dialog.showSaveDialog(mainWindow, { title: '导出 PinDo 诊断报告', defaultPath: path.join(app.getPath('documents'), `PinDo-diagnostics-${new Date().toISOString().slice(0, 10)}.json`), filters: [{ name: 'PinDo 诊断报告', extensions: ['json'] }] });
+  if (result.canceled || !result.filePath) return { accepted: false, cancelled: true };
+  try { fs.writeFileSync(result.filePath, JSON.stringify(await diagnostics.snapshot(), null, 2), { encoding: 'utf8', mode: 0o600 }); diagnostics.record('diagnostics-exported'); return { accepted: true, filePath: result.filePath }; }
+  catch (error) { diagnostics.record('diagnostics-export-failed', { message: error.message }); return { accepted: false, error: '诊断报告导出失败，请检查文件权限。' }; }
+}
+
+function resetWindowPositions() {
+  if (!noteStore) return { accepted: false, error: '当前没有可恢复的窗口' };
+  createBackup(backupPath(), noteStore.serialize(), { force: true });
+  const next = structuredClone(noteStore.state); const work = screen.getPrimaryDisplay().workArea; let index = 0;
+  for (const note of next.notes || []) {
+    if (note.mode === 'bookmark') continue;
+    const w = Math.min(Math.max(Number(note.w) || 380, 300), Math.max(300, work.width - 80));
+    const h = Math.min(Math.max(Number(note.h) || 320, 220), Math.max(220, work.height - 100));
+    note.w = w; note.h = h; note.x = work.x + 40 + (index % 8) * 26; note.y = work.y + 40 + (index % 8) * 26; index += 1;
+  }
+  noteStore = new NoteStateStore(next); pendingState = noteStore.serialize(); flushState(); broadcastState();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setPosition(work.x + work.width - mainWindow.getBounds().width - 28, work.y + work.height - mainWindow.getBounds().height - 28);
+  diagnostics.record('window-positions-reset', { noteCount: index }); return { accepted: true, notes: index };
+}
+
 function saveCanonicalState(serialized) {
   pendingState = serialized;
   clearTimeout(saveTimer);
@@ -122,6 +147,7 @@ function broadcastState(sourceId) {
   if (noteWindowManager && noteStore) noteWindowManager.sync(noteStore.state.notes);
   nativeFeatures?.sync();
   if (noteStore && noteWindowManager) for (const [id,win] of noteWindowManager.windows) {
+    if (diagnostics && !win.pindoDiagnosticsAttached) { win.pindoDiagnosticsAttached = true; diagnostics.attachWindow(win, `note-${noteStore.state.notes.find(note => note.id === id)?.type || 'unknown'}`); }
     if (win.pindoGestureActive || win.pindoGroupMoving || (id === sourceId && !normalized)) continue;
     const snapshot = noteStore.snapshot(id);
     const key = JSON.stringify([snapshot?.version,noteContext(id)]);
@@ -268,6 +294,9 @@ else {
       setImmediate(broadcastState);
       event.returnValue = { accepted: true, revision: noteStore.revision };
     });
+    diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), compatibility: compatibilityState });
+    if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
+    app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
     ipcMain.handle('pindo:data-action', async (event, action) => {
       if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
       if (action === 'export') return exportData();
@@ -277,6 +306,14 @@ else {
         flushState(); createBackup(backupPath(), noteStore.serialize(), { force: true });
         return { accepted: true, count: listBackups(backupPath()).length };
       }
+      return { accepted: false, error: 'unsupported-action' };
+    });
+    ipcMain.handle('pindo:diagnostic-action', async (event, action, value) => {
+      if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
+      if (action === 'diagnostics-export') return exportDiagnostics();
+      if (action === 'reset-windows') return resetWindowPositions();
+      if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility };
+      if (action === 'compatibility-set') return { accepted: true, ...diagnostics.setCompatibility(Boolean(value?.enabled)), restartRequired: true };
       return { accepted: false, error: 'unsupported-action' };
     });
     cloudSync = new CloudSyncManager({
@@ -314,6 +351,7 @@ else {
       } catch (error) { return { accepted: false, error: String(error.message || error) }; }
     });
     createWindow();
+    diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), onDesktopHostError: (id, reason) => console.error(`PinDo note ${id} desktop host failed:`, reason) });
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
     nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
@@ -322,8 +360,8 @@ else {
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)) });
     if (noteStore) broadcastState();
     createTray();
-    screen.on('display-metrics-changed', () => broadcastState());
-    screen.on('display-removed', () => broadcastState());
+    screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); broadcastState(); });
+    screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); broadcastState(); });
 
     updaterAvailable = fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'));
     // PinDo is currently distributed as beta builds. Explicitly allow a newer
@@ -364,6 +402,7 @@ else {
     nativeFeatures?.close();
     resizePreview?.close();
     noteWindowManager?.closeAll();
+    diagnostics?.markCleanExit();
     flushState();
   });
   app.on('window-all-closed', () => { /* Keep running in the Windows tray. */ });

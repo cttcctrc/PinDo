@@ -1996,7 +1996,7 @@
   });
   dodoSizeRange.addEventListener("change", () => { save(); showToast("Dodo大小已保存"); });
   async function runDataAction(action, button) {
-    if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
+    if (!window.pindoDesktop?.diagnosticAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
     const buttons = document.querySelectorAll(".data-settings-actions button"); buttons.forEach(item => item.disabled = true);
     dataSettingsStatus.textContent = action === "import" ? "正在验证并导入数据……" : action === "export" ? "正在准备导出文件……" : "正在创建本地备份……";
     try {
@@ -2015,6 +2015,32 @@
     if (!confirm("导入会用文件中的数据替换当前内容。PinDo 会先自动备份当前数据，是否继续？")) return;
     await runDataAction("import", event.currentTarget);
   });
+  const diagnosticStatus = document.querySelector("#diagnosticSettingsStatus");
+  const compatibilityButton = document.querySelector("#compatibilityButton");
+  let compatibilityEnabled = false;
+  function showCompatibilityStatus(value = {}) {
+    compatibilityEnabled = Boolean(value.enabled);
+    compatibilityButton.textContent = compatibilityEnabled ? "关闭兼容模式" : "开启兼容模式";
+    diagnosticStatus.textContent = value.autoEnabled ? "检测到连续异常退出，已自动开启兼容模式；重启后生效" : compatibilityEnabled ? "兼容模式已开启，可减少部分显卡导致的黑框或闪烁" : "正常模式";
+  }
+  async function runDiagnosticAction(action, value, button) {
+    if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
+    document.querySelectorAll(".diagnostic-actions button").forEach(item => item.disabled = true);
+    diagnosticStatus.textContent = action === "diagnostics-export" ? "正在生成隐私安全的诊断报告……" : action === "reset-windows" ? "正在恢复窗口位置……" : "正在保存设置……";
+    try {
+      const result = await window.pindoDesktop.diagnosticAction(action, value);
+      if (result?.cancelled) { diagnosticStatus.textContent = "操作已取消"; return; }
+      if (!result?.accepted) { diagnosticStatus.textContent = result?.error || "操作失败，请稍后重试"; return; }
+      if (action === "reset-windows") { diagnosticStatus.textContent = `已恢复 ${result.notes} 个便签的位置`; showToast("窗口位置已恢复"); }
+      else if (action === "diagnostics-export") { diagnosticStatus.textContent = "诊断报告已导出，不包含便签正文和账号信息"; showToast("诊断报告已导出"); }
+      else { showCompatibilityStatus(result); diagnosticStatus.textContent += "；请重启 PinDo"; }
+    } catch { diagnosticStatus.textContent = "操作失败，请稍后重试"; }
+    finally { document.querySelectorAll(".diagnostic-actions button").forEach(item => item.disabled = false); }
+  }
+  document.querySelector("#resetWindowsButton")?.addEventListener("click", event => { if (confirm("将所有展开的便签移回主屏幕，并保留便签内容和尺寸。是否继续？")) runDiagnosticAction("reset-windows", null, event.currentTarget); });
+  document.querySelector("#exportDiagnosticsButton")?.addEventListener("click", event => runDiagnosticAction("diagnostics-export", null, event.currentTarget));
+  compatibilityButton?.addEventListener("click", event => runDiagnosticAction("compatibility-set", { enabled: !compatibilityEnabled }, event.currentTarget));
+  window.pindoDesktop?.diagnosticAction?.("compatibility-status").then(showCompatibilityStatus).catch(() => {});
   const cloudStatus = document.querySelector("#cloudSettingsStatus");
   const cloudEmail = document.querySelector("#cloudEmail");
   const cloudPassword = document.querySelector("#cloudPassword");

@@ -1716,3 +1716,5 @@ body.control-window-mode .settings-dialog{pointer-events:auto}
 .cloud-auth-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 10px}.cloud-auth-fields[hidden]{display:none}
 .cloud-auth-fields input{min-width:0;border:1px solid rgba(74,83,112,.15);border-radius:12px;background:rgba(255,255,255,.9);padding:11px 12px;color:#30333b;outline:none;font:inherit}.cloud-auth-fields input:focus{border-color:#6587dc;box-shadow:0 0 0 3px rgba(101,135,220,.12)}
 .cloud-actions{margin-top:12px}.cloud-actions button[hidden]{display:none}.cloud-settings .data-settings-status{display:block;margin-top:10px;line-height:1.5}
+.diagnostic-settings{margin-top:18px;padding:18px;border:1px solid rgba(66,75,96,.1);border-radius:20px;background:rgba(255,255,255,.64)}
+.diagnostic-actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}.diagnostic-settings .data-settings-status{display:block;margin-top:10px;line-height:1.5}
