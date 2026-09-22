@@ -12,13 +12,13 @@ test('diagnostic redaction removes home paths, email addresses and JWT-like toke
   assert.doesNotMatch(output, /user@example\.com/); assert.doesNotMatch(output, /eyJabcdefghij/);
 });
 
-test('compatibility mode automatically activates only after repeated unclean starts', () => {
+test('compatibility mode activates reduced effects without disabling Chromium rendering', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pindo-diagnostics-')); let disabled = 0;
   const app = { getPath: () => directory, disableHardwareAcceleration: () => disabled++ };
   assert.equal(prepareCompatibility(app).enabled, false);
   assert.equal(prepareCompatibility(app).enabled, false);
   assert.equal(prepareCompatibility(app).enabled, true);
-  assert.equal(disabled, 1);
+  assert.equal(disabled, 0);
 });
 
 test('diagnostic snapshot contains environment and note shape but no note text', async () => {

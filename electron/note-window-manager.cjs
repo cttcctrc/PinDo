@@ -31,10 +31,10 @@ function nativeNoteView(note, displays) {
 
 /** Owns only native windows, never the note contents or local data file. */
 class NoteWindowManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, onClosed = () => {}, onDesktopHostError = () => {}, desktopHost = attachToWindowsDesktop }) {
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, onClosed = () => {}, onDesktopHostError = () => {}, desktopHost = attachToWindowsDesktop }) {
     this.BrowserWindow = BrowserWindow; this.screen = screen;
     this.indexPath = indexPath; this.preloadPath = preloadPath; this.onClosed = onClosed;
-    this.onDesktopHostError = onDesktopHostError; this.desktopHost = desktopHost;
+    this.onDesktopHostError = onDesktopHostError; this.desktopHost = desktopHost; this.compatibilityMode = compatibilityMode;
     this.windows = new Map();
     this.modes = new Map();
   }
@@ -85,7 +85,7 @@ class NoteWindowManager {
         win.pindoPromoted=false; win.pindoNoteType=view.type;
         this.windows.set(id, win);
         this.modes.set(id, view.mode);
-        win.loadFile(this.indexPath, { query: { noteWindow: id } });
+        win.loadFile(this.indexPath, { query: { noteWindow: id, compatibility: this.compatibilityMode ? '1' : '0' } });
         win.webContents.once('did-finish-load', async () => {
           if (win.isDestroyed() || this.windows.get(id) !== win) return;
           if (view.mode === 'desktop') {

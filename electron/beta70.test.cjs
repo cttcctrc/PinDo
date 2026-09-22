@@ -15,14 +15,16 @@ test('beta 7 account UI uses a scoped main-process cloud bridge', () => {
   assert.match(html, /id="exportDiagnosticsButton"/);
   assert.match(html, /id="resetWindowsButton"/);
   assert.match(main, /prepareCompatibility\(app\)/);
+  assert.doesNotMatch(read('electron/diagnostics.cjs'), /app\.disableHardwareAcceleration\(\)/);
+  assert.match(read('dist/styles.css'), /body\.compatibility-mode \.note/);
 });
 
 test('beta 7 release workflow and production metadata agree', () => {
   const workflow = read('.github/workflows/windows-release.yml');
   const config = require('../electron-builder.production.cjs');
-  assert.equal(config.extraMetadata.version, '1.1.0-beta.7.1');
-  assert.match(workflow, /v1\.1\.0-beta\.7\.1/);
-  assert.match(workflow, /PINDO_RELEASE_VERSION: 1\.1\.0-beta\.7\.1/);
+  assert.equal(config.extraMetadata.version, '1.1.0-beta.7.2');
+  assert.match(workflow, /v1\.1\.0-beta\.7\.2/);
+  assert.match(workflow, /PINDO_RELEASE_VERSION: 1\.1\.0-beta\.7\.2/);
 });
 
 test('Supabase direct sync is protected by RLS and reserves admin controls', () => {

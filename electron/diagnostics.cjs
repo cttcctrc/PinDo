@@ -24,7 +24,6 @@ function prepareCompatibility(app) {
   const autoEnabled = !state.enabled && uncleanStarts >= 2;
   const next = { ...state, enabled: Boolean(state.enabled || autoEnabled), autoEnabled, uncleanStarts, cleanExit: false, updatedAt: Date.now() };
   writeCompatibility(app, next);
-  if (next.enabled) app.disableHardwareAcceleration();
   return next;
 }
 
@@ -46,6 +45,7 @@ class Diagnostics {
   }
   attachWindow(win, role) {
     if (!win || win.isDestroyed()) return;
+    win.pindoDiagnosticRole = role;
     win.webContents.on('render-process-gone', (_event, detail) => this.record('render-process-gone', { role, reason: detail.reason, exitCode: detail.exitCode }));
     win.on('unresponsive', () => this.record('window-unresponsive', { role }));
   }
@@ -56,7 +56,8 @@ class Diagnostics {
     let gpu = {}; try { const info = await this.app.getGPUInfo('basic'); gpu = { gpuDevice: info.gpuDevice?.map(device => ({ active: device.active, vendorId: device.vendorId, deviceId: device.deviceId })), auxAttributes: info.auxAttributes }; } catch (error) { gpu = { error: error.message }; }
     const logs = [];
     for (const name of fs.readdirSync(this.directory).sort()) { try { logs.push(...fs.readFileSync(path.join(this.directory, name), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))); } catch {} }
-    return redact({ generatedAt: new Date().toISOString(), privacy: 'No note text, email address, file path, screenshot or pet asset is included.', app: { name: this.app.getName(), version: this.app.getVersion(), packaged: this.app.isPackaged }, system: { platform: process.platform, arch: process.arch, osRelease: os.release(), osVersion: os.version(), electron: process.versions.electron, chrome: process.versions.chrome, locale: this.app.getLocale(), cpuCount: os.cpus().length, memoryGB: Math.round(os.totalmem() / 1073741824) }, compatibility: this.compatibility, displays, gpu, windowCount: this.getWindows().length, notes, logs });
+    const windows = this.getWindows().filter(win => !win.isDestroyed()).map(win => ({ role: win.pindoDiagnosticRole || 'auxiliary', visible: win.isVisible?.(), focused: win.isFocused?.(), minimized: win.isMinimized?.(), alwaysOnTop: win.isAlwaysOnTop?.(), bounds: win.getBounds?.(), parked: Boolean(win.pindoParked), desktopPromoted: Boolean(win.pindoPromoted) }));
+    return redact({ generatedAt: new Date().toISOString(), privacy: 'No note text, email address, file path, screenshot or pet asset is included.', app: { name: this.app.getName(), version: this.app.getVersion(), packaged: this.app.isPackaged }, system: { platform: process.platform, arch: process.arch, osRelease: os.release(), osVersion: os.version(), electron: process.versions.electron, chrome: process.versions.chrome, locale: this.app.getLocale(), cpuCount: os.cpus().length, memoryGB: Math.round(os.totalmem() / 1073741824) }, compatibility: { ...this.compatibility, strategy: this.compatibility.enabled ? 'reduced-visual-effects' : 'standard' }, displays, gpu, windowCount: windows.length, windows, notes, logs });
   }
   setCompatibility(enabled) {
     this.compatibility = { ...this.compatibility, enabled: Boolean(enabled), autoEnabled: false, uncleanStarts: 0, updatedAt: Date.now() };

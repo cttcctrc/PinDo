@@ -1718,3 +1718,17 @@ body.control-window-mode .settings-dialog{pointer-events:auto}
 .cloud-actions{margin-top:12px}.cloud-actions button[hidden]{display:none}.cloud-settings .data-settings-status{display:block;margin-top:10px;line-height:1.5}
 .diagnostic-settings{margin-top:18px;padding:18px;border:1px solid rgba(66,75,96,.1);border-radius:20px;background:rgba(255,255,255,.64)}
 .diagnostic-actions{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px}.diagnostic-settings .data-settings-status{display:block;margin-top:10px;line-height:1.5}
+
+/* Compatibility mode keeps Chromium rendering enabled. Disabling GPU output
+   makes Explorer-parented transparent windows invisible on older Windows 10. */
+body.compatibility-mode .note,
+body.compatibility-mode .note *,
+body.compatibility-mode .assistant-panel,
+body.compatibility-mode .settings-dialog,
+body.compatibility-mode .mini-popover { backdrop-filter:none!important; transition-duration:.01ms!important; }
+body.compatibility-mode .note { box-shadow:inset 0 0 0 1px rgba(57,64,78,.12)!important; }
+body.compatibility-mode .note[data-type="organizer"] { background:rgba(22,25,30,.88)!important; }
+body.compatibility-mode .note.note-spawn,
+body.compatibility-mode .todo-row.pindo-attention,
+body.compatibility-mode .timeline-row.pindo-attention { animation:none!important; }
+body.compatibility-mode .note-controls button:hover { transform:none!important; box-shadow:none!important; }

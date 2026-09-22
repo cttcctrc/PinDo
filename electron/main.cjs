@@ -259,7 +259,7 @@ function createWindow() {
   // This renderer is only the Dodo/control surface. Notes are created as
   // independent native windows by NoteWindowManager, so no duplicate
   // full-screen note canvas is shown here.
-  mainWindow.loadFile(indexPath, { query: { controlWindow: '1' } });
+  mainWindow.loadFile(indexPath, { query: { controlWindow: '1', compatibility: compatibilityState.enabled ? '1' : '0' } });
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -352,7 +352,7 @@ else {
     });
     createWindow();
     diagnostics.attachWindow(mainWindow, 'dodo-control');
-    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), onDesktopHostError: (id, reason) => console.error(`PinDo note ${id} desktop host failed:`, reason) });
+    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
     nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
     resizePreview = new ResizePreview({ BrowserWindow });

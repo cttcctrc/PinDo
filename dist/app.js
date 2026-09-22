@@ -5,8 +5,10 @@
   const query = new URLSearchParams(location.search);
   const noteWindowId = query.get("noteWindow");
   const controlWindow = query.get("controlWindow") === "1";
+  const compatibilityMode = query.get("compatibility") === "1";
   if (noteWindowId) document.body.classList.add("note-window-mode");
   if (controlWindow) document.body.classList.add("control-window-mode");
+  if (compatibilityMode) document.body.classList.add("compatibility-mode");
   const COLORS = ["#fff0dc", "#dfe8ff", "#f0ddff", "#dff1e7", "#ffe4da", "#e8eef8"];
   const PIN_COLORS = ["#ff7044", "#467df4", "#8356e8", "#4fa674", "#f05f3b", "#386ee8"];
   const NODE_COLORS = ["#ef725f", "#eeaa45", "#6ca97d", "#5795d6", "#8d72be", "#565b64"];
@@ -2021,7 +2023,7 @@
   function showCompatibilityStatus(value = {}) {
     compatibilityEnabled = Boolean(value.enabled);
     compatibilityButton.textContent = compatibilityEnabled ? "关闭兼容模式" : "开启兼容模式";
-    diagnosticStatus.textContent = value.autoEnabled ? "检测到连续异常退出，已自动开启兼容模式；重启后生效" : compatibilityEnabled ? "兼容模式已开启，可减少部分显卡导致的黑框或闪烁" : "正常模式";
+    diagnosticStatus.textContent = value.autoEnabled ? "检测到连续异常退出，已自动切换轻量视觉；重启后生效" : compatibilityEnabled ? "轻量兼容模式已开启：保留窗口渲染，仅减少透明与复杂动效" : "标准视觉模式";
   }
   async function runDiagnosticAction(action, value, button) {
     if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
