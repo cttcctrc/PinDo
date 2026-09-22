@@ -107,7 +107,17 @@ class NoteWindowManager {
 
   activate(id) {
     const selected=this.windows.get(id);
-    if(selected?.pindoNoteType==='organizer'){this.setActive(id,false);return;}
+    // Organizer stays attached to the desktop layer, but it still needs real
+    // keyboard focus while its title is being edited. Previously we returned
+    // before focusing it, so contenteditable could select text but Windows
+    // sent subsequent keystrokes elsewhere.
+    if(selected?.pindoNoteType==='organizer'){
+      this.setActive(id,false);
+      if(!selected.isFocused?.())selected.focus?.();
+      selected.webContents.focus?.();
+      selected.moveTop();
+      return;
+    }
     for(const [other,win] of this.windows)if(other!==id && win.pindoActive)this.setActive(other,false);
     this.setActive(id,true);
     const win=this.windows.get(id);if(win&&!win.isDestroyed())win.moveTop();

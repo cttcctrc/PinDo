@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   readState: () => ipcRenderer.sendSync('pindo:read-state'),
   readRevision: () => ipcRenderer.sendSync('pindo:read-revision'),
   writeState: (serialized, revision) => ipcRenderer.sendSync('pindo:write-state', serialized, revision),
+  dataAction: action => ipcRenderer.invoke('pindo:data-action', action),
   onStateChanged: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, serialized, revision) => callback(serialized, revision);

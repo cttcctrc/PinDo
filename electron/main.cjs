@@ -11,6 +11,7 @@ const { registerNoteIpc } = require('./note-ipc.cjs');
 const { createControlHitTest } = require('./control-pointer.cjs');
 const { registerWindowGesture } = require('./window-gesture.cjs');
 const { ResizePreview } = require('./resize-preview.cjs');
+const { parseState, createBackup, newestValidBackup, listBackups } = require('./state-backup.cjs');
 
 app.setName('PinDo');
 if (process.platform === 'win32') app.setAppUserModelId('com.pindo.notes');
@@ -32,6 +33,7 @@ let resizePreview;
 const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 const indexUrl = pathToFileURL(indexPath).href;
 const statePath = () => path.join(app.getPath('userData'), 'notes.json');
+const backupPath = () => path.join(app.getPath('userData'), 'backups');
 
 function flushState() {
   clearTimeout(saveTimer);
@@ -42,6 +44,7 @@ function flushState() {
     fs.mkdirSync(path.dirname(filename), { recursive: true });
     fs.writeFileSync(tmp, pendingState, { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmp, filename);
+    createBackup(backupPath(), pendingState);
     pendingState = undefined;
   } catch (error) {
     console.error('PinDo could not save local state:', error);
@@ -60,9 +63,44 @@ function readStateFile() {
     if (parsed && Array.isArray(parsed.notes)) noteStore = new NoteStateStore(parsed);
     return raw;
   } catch (error) {
-    if (error.code !== 'ENOENT') console.error('PinDo could not load local state:', error);
+    if (error.code !== 'ENOENT') {
+      console.error('PinDo could not load local state:', error);
+      const recovered = newestValidBackup(backupPath());
+      if (recovered) {
+        try {
+          const broken = `${statePath()}.corrupt-${Date.now()}`;
+          fs.renameSync(statePath(), broken);
+          noteStore = new NoteStateStore(parseState(recovered.serialized));
+          fs.writeFileSync(statePath(), noteStore.serialize(), { encoding: 'utf8', mode: 0o600 });
+          return noteStore.serialize();
+        } catch (recoveryError) { console.error('PinDo backup recovery failed:', recoveryError); }
+      }
+    }
     return null;
   }
+}
+
+async function exportData() {
+  if (!noteStore) return { accepted: false, error: '当前没有可导出的数据' };
+  flushState();
+  const name = `PinDo-data-${new Date().toISOString().slice(0, 10)}.json`;
+  const result = await dialog.showSaveDialog(mainWindow, { title: '导出 PinDo 数据', defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'PinDo 数据', extensions: ['json'] }] });
+  if (result.canceled || !result.filePath) return { accepted: false, cancelled: true };
+  try { fs.writeFileSync(result.filePath, noteStore.serialize(), { encoding: 'utf8', mode: 0o600 }); return { accepted: true, filePath: result.filePath }; }
+  catch (error) { return { accepted: false, error: `导出失败：${error.message}` }; }
+}
+
+async function importData() {
+  const result = await dialog.showOpenDialog(mainWindow, { title: '导入 PinDo 数据', properties: ['openFile'], filters: [{ name: 'PinDo 数据', extensions: ['json'] }] });
+  if (result.canceled || !result.filePaths[0]) return { accepted: false, cancelled: true };
+  try {
+    const serialized = fs.readFileSync(result.filePaths[0], 'utf8');
+    const imported = new NoteStateStore(parseState(serialized));
+    if (noteStore) createBackup(backupPath(), noteStore.serialize(), { force: true });
+    noteStore = imported;
+    pendingState = noteStore.serialize(); flushState(); broadcastState();
+    return { accepted: true, notes: noteStore.state.notes.length };
+  } catch { return { accepted: false, error: '导入失败：文件不是有效的 PinDo 数据，现有数据未改变。' }; }
 }
 
 function saveCanonicalState(serialized) {
@@ -226,6 +264,17 @@ else {
       // clicked control responds immediately.
       setImmediate(broadcastState);
       event.returnValue = { accepted: true, revision: noteStore.revision };
+    });
+    ipcMain.handle('pindo:data-action', async (event, action) => {
+      if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
+      if (action === 'export') return exportData();
+      if (action === 'import') return importData();
+      if (action === 'backup-now') {
+        if (!noteStore) return { accepted: false, error: '当前没有可备份的数据' };
+        flushState(); createBackup(backupPath(), noteStore.serialize(), { force: true });
+        return { accepted: true, count: listBackups(backupPath()).length };
+      }
+      return { accepted: false, error: 'unsupported-action' };
     });
     createWindow();
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), onDesktopHostError: (id, reason) => console.error(`PinDo note ${id} desktop host failed:`, reason) });

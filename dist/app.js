@@ -70,6 +70,7 @@
   const settingsPanel = document.querySelector("#settingsPanel");
   const settingsModal = document.querySelector("#settingsModal");
   const settingsDialog = settingsModal.querySelector(".settings-dialog");
+  const dataSettingsStatus = document.querySelector("#dataSettingsStatus");
   let zCounter = 20;
   let toastTimer;
   let rendererSaveTimer = 0;
@@ -1994,6 +1995,26 @@
     applyInterfaceSettings(); requestAnimationFrame(() => { positionAssistant(); positionDodoNudge(); });
   });
   dodoSizeRange.addEventListener("change", () => { save(); showToast("Dodo大小已保存"); });
+  async function runDataAction(action, button) {
+    if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
+    const buttons = document.querySelectorAll(".data-settings-actions button"); buttons.forEach(item => item.disabled = true);
+    dataSettingsStatus.textContent = action === "import" ? "正在验证并导入数据……" : action === "export" ? "正在准备导出文件……" : "正在创建本地备份……";
+    try {
+      const result = await window.pindoDesktop.dataAction(action);
+      if (result?.cancelled) { dataSettingsStatus.textContent = "操作已取消"; return; }
+      if (!result?.accepted) { dataSettingsStatus.textContent = result?.error || "操作失败，请稍后重试"; return; }
+      if (action === "import") { dataSettingsStatus.textContent = `导入完成，共恢复 ${result.notes} 个便签`; showToast("数据导入完成"); }
+      else if (action === "export") { dataSettingsStatus.textContent = "数据已导出到你选择的位置"; showToast("数据导出完成"); }
+      else { dataSettingsStatus.textContent = `备份完成，当前保留 ${result.count} 份本地备份`; showToast("本地备份完成"); }
+    } catch { dataSettingsStatus.textContent = "操作失败，请稍后重试"; }
+    finally { buttons.forEach(item => item.disabled = false); }
+  }
+  document.querySelector("#backupNowButton")?.addEventListener("click", event => runDataAction("backup-now", event.currentTarget));
+  document.querySelector("#exportDataButton")?.addEventListener("click", event => runDataAction("export", event.currentTarget));
+  document.querySelector("#importDataButton")?.addEventListener("click", async event => {
+    if (!confirm("导入会用文件中的数据替换当前内容。PinDo 会先自动备份当前数据，是否继续？")) return;
+    await runDataAction("import", event.currentTarget);
+  });
   recycleList.addEventListener("click", event => {
     const restore = event.target.closest("[data-restore-note]");
     if (restore) { const index = state.recycleBin.findIndex(note => note.id === restore.dataset.restoreNote); if (index >= 0) { const [note] = state.recycleBin.splice(index, 1); delete note.deletedAt; note.z = ++zCounter; state.notes.push(note); render(); showToast("便签已恢复"); } return; }

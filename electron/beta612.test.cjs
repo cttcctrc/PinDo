@@ -52,3 +52,9 @@ test('organizer refreshes its body without rebuilding the entire native note', (
   assert.match(app, /renderOrganizer\(el\.querySelector\("\.note-body"\), note\)/);
   assert.match(app, /note\.organizerItemSize = next; refreshOrganizer\(note\)/);
 });
+
+test('desktop organizer title receives native keyboard focus without leaving desktop layer', () => {
+  const manager = read('electron/note-window-manager.cjs');
+  assert.match(manager, /pindoNoteType==='organizer'[\s\S]*selected\.focus\?\.\(\)[\s\S]*selected\.webContents\.focus\?\.\(\)/);
+  assert.match(read('dist/app.js'), /if \(noteWindowId\) void window\.pindoNative\.command\("focus-note"\)/);
+});

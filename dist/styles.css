@@ -1229,6 +1229,15 @@ body, button, input, select, textarea { font-family: var(--ui-latin-font), var(-
 .settings-dialog > header strong { color: #282c34; font-size: var(--sys-lg); }
 .settings-dialog > header button { width: var(--sys-hit); height: var(--sys-hit); padding: 0; display: grid; place-items: center; border-radius: 50%; background: #eceff4; color: #656b77; font-size: calc(var(--sys-lg) + 3px); }
 .settings-dialog .settings-panel { gap: calc(var(--sys-gap) + 3px); padding: 14px; border: 0; }
+.data-settings { display: grid; gap: 12px; padding: 14px; border: 1px solid rgba(65,72,86,.09); border-radius: calc(var(--sys-radius) - 2px); background: rgba(255,255,255,.72); }
+.data-settings-copy { display: grid; gap: 3px; color: #3d424c; }
+.data-settings-copy strong { font-size: var(--sys-md); }
+.data-settings-copy small,.data-settings-status { color: #9299a7; font-size: var(--sys-xs); line-height: 1.45; }
+.data-settings-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.data-settings-actions button { min-height: var(--sys-hit); padding: 8px; border-radius: 12px; background: #527bd0; color: white; font-size: var(--sys-sm); }
+.data-settings-actions button.secondary { color: #566071; background: #edf0f5; }
+.data-settings-actions button:disabled { opacity: .55; cursor: wait; }
+.data-settings-status:empty { display: none; }
 .settings-panel label > span, .settings-row > span { font-size: var(--sys-sm); }
 .settings-panel small { font-size: var(--sys-xs); }
 .settings-panel select { height: var(--sys-hit); padding: 0 11px; border-radius: var(--sys-radius); font-size: var(--sys-sm); }

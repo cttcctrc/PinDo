@@ -60,6 +60,11 @@
           <label><span>英文字体</span><select id="englishFontSelect"><option value="nunito">Nunito</option><option value="segoe">Segoe UI</option><option value="system">System UI</option></select></label>
           <div class="settings-row"><span>整体 UI 大小<small>字号、图标、标签和控件同步变化</small></span><div class="ui-size-segments"><button data-ui-size="small">小</button><button data-ui-size="medium">中</button><button data-ui-size="large">大</button></div></div>
           <label class="dodo-size-setting"><span>Dodo 大小<small>50%—200%</small></span><output id="dodoSizeValue">100%</output><input id="dodoSizeRange" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+          <section class="data-settings" aria-labelledby="dataSettingsTitle">
+            <div class="data-settings-copy"><strong id="dataSettingsTitle">数据与备份</strong><small>自动保留最近 10 份本地备份；导入前会先备份当前数据</small></div>
+            <div class="data-settings-actions"><button id="backupNowButton">立即备份</button><button id="exportDataButton">导出数据</button><button id="importDataButton" class="secondary">导入数据</button></div>
+            <small class="data-settings-status" id="dataSettingsStatus" role="status"></small>
+          </section>
         </div>
       </section>
     </div>
