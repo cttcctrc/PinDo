@@ -1,5 +1,5 @@
 const path = require('node:path');
-const ICON_VERSION = 4;
+const ICON_VERSION = 5;
 function createFileIconReader({app, shell, nativeImage}, platform = process.platform, env = process.env) {
   const expand = value => String(value || '').replace(/%([^%]+)%/g, (match, name) => {
     const key = Object.keys(env).find(key => key.toLowerCase() === name.toLowerCase());

@@ -70,6 +70,7 @@ class NoteWindowManager {
         win = new this.BrowserWindow({
           ...view.bounds, minWidth: 280, minHeight: 210,
           frame: false, transparent: true, show: false, skipTaskbar: true,
+          resizable: false,
           backgroundColor: '#00000000', hasShadow: false,
           webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
         });
@@ -83,6 +84,7 @@ class NoteWindowManager {
         win.on('blur', () => { win.webContents.send('pindo:window-blur'); this.setActive(id,false); });
         win.on('closed', () => { if (this.windows.get(id) === win) this.windows.delete(id); this.onClosed(id); });
         win.pindoPromoted=false; win.pindoNoteType=view.type;
+        win.pindoRequestedBoundsKey=JSON.stringify(view.bounds);
         this.windows.set(id, win);
         this.modes.set(id, view.mode);
         win.loadFile(this.indexPath, { query: { noteWindow: id, compatibility: this.compatibilityMode ? '1' : '0' } });
@@ -98,7 +100,13 @@ class NoteWindowManager {
           // Even if Explorer is unavailable, keep the user's note accessible.
           if (!win.isDestroyed()) win.showInactive();
         });
-      } else if (!win.pindoGestureActive && !win.pindoGroupMoving && JSON.stringify(win.getBounds()) !== JSON.stringify(view.bounds)) win.setBounds(view.bounds);
+      } else if (!win.pindoGestureActive && !win.pindoGroupMoving) {
+        const requested=JSON.stringify(view.bounds);
+        // Avoid asking Windows for the same rejected/rounded transparent
+        // bounds on every unrelated state broadcast; that repaint was the
+        // main source of intermittent note flashing.
+        if(win.pindoRequestedBoundsKey!==requested){win.pindoRequestedBoundsKey=requested;if(JSON.stringify(win.getBounds())!==requested)win.setBounds(view.bounds);}
+      }
       if (win.pindoParked) { win.pindoParked = false; win.pindoParkedAt = 0; win.showInactive(); }
       const top=view.mode==='top'||Boolean(win.pindoActive);
       if(win.pindoTop!==top){win.setAlwaysOnTop(top,'floating');win.pindoTop=top;}
@@ -150,6 +158,7 @@ class NoteWindowManager {
     const next = nativeNoteView({ id, type: 'quick', mode: this.modes.get(id) || 'desktop', x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }, this.screen.getAllDisplays())?.bounds;
     if (!next) return { accepted: false, reason: 'invalid' };
     win.setBounds(next);
+    win.pindoRequestedBoundsKey=JSON.stringify(next);
     return { accepted: true, bounds: next };
   }
 

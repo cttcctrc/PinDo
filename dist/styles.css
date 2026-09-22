@@ -626,7 +626,14 @@ button, select, textarea { font-family: "Segoe UI", "Microsoft YaHei UI", system
   border-radius: 0 0 18px 0; background: linear-gradient(135deg, transparent 0 46%, rgba(70,72,78,.2) 47% 53%, transparent 54% 64%, rgba(70,72,78,.28) 65% 71%, transparent 72%);
   cursor: nwse-resize; touch-action: none;
 }
-.note.is-locked .resize-handle { display: none; }
+.resize-edge { position:absolute;z-index:11;touch-action:none;background:transparent; }
+.resize-n,.resize-s { left:12px;right:12px;height:7px;cursor:ns-resize; }
+.resize-n { top:0; }.resize-s { bottom:0; }
+.resize-e,.resize-w { top:12px;bottom:12px;width:7px;cursor:ew-resize; }
+.resize-e { right:0; }.resize-w { left:0; }
+.resize-ne,.resize-nw,.resize-sw { width:13px;height:13px; }
+.resize-ne { right:0;top:0;cursor:nesw-resize; }.resize-nw { left:0;top:0;cursor:nwse-resize; }.resize-sw { left:0;bottom:0;cursor:nesw-resize; }
+.note.is-locked .resize-handle,.note.is-locked .resize-edge { display: none; }
 .note.is-resizing { transition: none; box-shadow: 0 30px 75px rgba(45,38,30,.23); }
 
 .note-icon-options { grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; }

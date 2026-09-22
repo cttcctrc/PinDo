@@ -21,6 +21,30 @@ function cloudSafeState(state) {
 
 function checksum(state) { return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex'); }
 
+// Cloud documents deliberately exclude machine-local paths and binary assets.
+// Re-applying a cloud payload must therefore hydrate, rather than replace,
+// those fields or every successful sync would erase organizer icons/targets.
+function preserveDeviceLocalFields(nextState, localState) {
+  const next = structuredClone(nextState || {});
+  const localNotes = new Map((localState?.notes || []).map(note => [note.id, note]));
+  for (const note of next.notes || []) {
+    const local = localNotes.get(note.id);
+    if (!local) continue;
+    for (const key of ['captureImage', 'pinnedImage', 'screenshot', 'imageData', 'localPet', 'customPet']) {
+      if (note[key] == null && local[key] != null) note[key] = structuredClone(local[key]);
+    }
+    if (note.type !== 'organizer') continue;
+    const localItems = new Map((local.desktopItems || []).map(item => [item.id, item]));
+    for (const item of note.desktopItems || []) {
+      const saved = localItems.get(item.id) || (local.desktopItems || []).find(candidate => candidate.name === item.name && candidate.kind === item.kind);
+      if (!saved) continue;
+      for (const key of ['path', 'icon', 'iconVersion']) if (item[key] == null && saved[key] != null) item[key] = saved[key];
+    }
+  }
+  for (const key of ['customPets', 'petAssets']) if (next[key] == null && localState?.[key] != null) next[key] = structuredClone(localState[key]);
+  return next;
+}
+
 function mergeStates(local, remote) {
   if (!remote?.notes) return local;
   const merged = structuredClone(remote);
@@ -82,14 +106,19 @@ class CloudSyncManager {
   }
   async runSync(reason) {
     this.onStatus(this.status({ syncing: true, reason }));
-    const local = cloudSafeState(this.getState());
+    const localFull = this.getState();
+    const local = cloudSafeState(localFull);
     const localChecksum = checksum(local);
     const pull = await this.request('/rest/v1/pindo_sync_documents?select=revision,payload,checksum,device_id,updated_at&limit=1');
     const row = Array.isArray(pull.data) ? pull.data[0] : null;
     const remote = row ? { revision: Number(row.revision), state: row.payload, checksum: row.checksum, deviceId: row.device_id, updatedAt: Date.parse(row.updated_at) } : { revision: 0, state: null, checksum: null };
     if (remote.state && remote.revision > (this.meta.revision || 0)) {
-      const merged = remote.checksum === localChecksum ? local : mergeStates(local, remote.state);
-      this.applyState(merged);
+      // A newer revision with identical content only advances metadata. It
+      // must not rebuild every renderer and interrupt typing/dragging.
+      if (remote.checksum !== localChecksum) {
+        const merged = preserveDeviceLocalFields(mergeStates(local, remote.state), localFull);
+        this.applyState(merged);
+      }
       this.meta.revision = remote.revision;
     }
     const current = cloudSafeState(this.getState()); const currentChecksum = checksum(current);
@@ -105,4 +134,4 @@ class CloudSyncManager {
   }
 }
 
-module.exports = { CloudSyncManager, cloudSafeState, mergeStates, checksum };
+module.exports = { CloudSyncManager, cloudSafeState, mergeStates, checksum, preserveDeviceLocalFields };

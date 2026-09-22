@@ -12,7 +12,7 @@ const { createControlHitTest } = require('./control-pointer.cjs');
 const { registerWindowGesture } = require('./window-gesture.cjs');
 const { ResizePreview } = require('./resize-preview.cjs');
 const { parseState, createBackup, newestValidBackup, listBackups } = require('./state-backup.cjs');
-const { CloudSyncManager } = require('./cloud-sync.cjs');
+const { CloudSyncManager, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 
 app.setName('PinDo');
@@ -65,7 +65,18 @@ function readStateFile() {
   try {
     const raw = fs.readFileSync(statePath(), 'utf8');
     const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.notes)) noteStore = new NoteStateStore(parsed);
+    if (parsed && Array.isArray(parsed.notes)) {
+      // beta 7.0-7.2 could replace local organizer metadata with the
+      // privacy-stripped cloud form. Recover targets/icons from local backups.
+      let recovered = parsed;
+      for (const entry of listBackups(backupPath())) {
+        try { recovered = preserveDeviceLocalFields(recovered, parseState(fs.readFileSync(entry.file, 'utf8'))); } catch {}
+      }
+      noteStore = new NoteStateStore(recovered);
+      if (JSON.stringify(recovered) !== JSON.stringify(parsed)) {
+        fs.writeFileSync(statePath(), noteStore.serialize(), { encoding: 'utf8', mode: 0o600 });
+      }
+    }
     return raw;
   } catch (error) {
     if (error.code !== 'ENOENT') {
@@ -320,8 +331,10 @@ else {
       app, safeStorage,
       getState: () => noteStore?.state || { notes: [] },
       applyState: state => {
+        const hydrated = preserveDeviceLocalFields(state, noteStore?.state);
+        if (noteStore && noteStore.serialize() === JSON.stringify(hydrated)) return;
         if (noteStore) createBackup(backupPath(), noteStore.serialize(), { force: true });
-        noteStore = new NoteStateStore(state);
+        noteStore = new NoteStateStore(hydrated);
         pendingState = noteStore.serialize(); flushState(); broadcastState();
       },
       onStatus: status => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pindo:cloud-status', status); }

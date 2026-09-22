@@ -51,7 +51,7 @@ function createGroupGestures({ manager, getStore, commit }) {
       const id = idOf(win); if (!id) return null;
       const state = getStore().state, note = state.notes.find(n => n.id === id);
       const attached = (state.attachments || []).some(l => l.childId === id);
-      if ((!attached && note.pinEnabled && note.locked) || (attached && kind === 'resize')) return false;
+      if ((!attached && note.pinEnabled && note.locked) || (attached && String(kind).startsWith('resize'))) return false;
       return { id, kind, attached, ids: descendants(state,id), moved: false, snap: null };
     },
     update(meta, bounds) {

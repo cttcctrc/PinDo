@@ -15,19 +15,35 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     if (refreshingIcons || closed) return;
     refreshingIcons = true;
     try {
-      for (const note of getStore()?.state.notes || []) {
+      const draft = structuredClone(getStore()?.state || {notes:[]});
+      let changed = false;
+      for (const note of draft.notes || []) {
         if (note.type !== 'organizer') continue;
         for (const item of note.desktopItems || []) {
           const key = JSON.stringify([note.id, item.id, item.path]);
           if (!item.path || item.iconVersion === ICON_VERSION || refreshedIcons.has(key)) continue;
           refreshedIcons.add(key);
-          const icon = item.kind==='folder' ? '' : await readIcon(item.path);
+          const icon = await readIcon(item.path);
           if (closed) return;
-          if (!icon && item.kind!=='folder') continue;
-          // Merge into current state after awaiting IO, never a stale snapshot.
-          const draft = structuredClone(getStore().state);
-          const current = draft.notes.find(n => n.id === note.id)?.desktopItems?.find(i => i.id === item.id && i.path === item.path);
-          if (current) { current.icon = icon; current.iconVersion = ICON_VERSION; commit(draft); }
+          if (!icon) continue;
+          item.icon = icon; item.iconVersion = ICON_VERSION; changed = true;
+        }
+      }
+      // One atomic renderer update avoids a visible flash for every shortcut.
+      if (changed && !closed) {
+        const current = getStore()?.state;
+        if (current) {
+          const merged = structuredClone(current);
+          // Preserve edits made while Windows was reading icons.
+          for (const note of draft.notes.filter(note => note.type === 'organizer')) {
+            const live = merged.notes.find(item => item.id === note.id);
+            if (!live) continue;
+            for (const item of note.desktopItems || []) {
+              const target = live.desktopItems?.find(entry => entry.id === item.id && entry.path === item.path);
+              if (target && item.iconVersion === ICON_VERSION) { target.icon = item.icon; target.iconVersion = ICON_VERSION; }
+            }
+          }
+          commit(merged);
         }
       }
     } finally { refreshingIcons = false; }
@@ -71,6 +87,11 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       const win=manager.windows.get(id);
       const answer=await dialog.showMessageBox(win,{type:'question',title:'删除便签',message:'将这个便签移入回收站？',detail:'可以在 Dodo 助手的回收站中恢复。',buttons:['取消','移入回收站'],defaultId:0,cancelId:0});
       if(answer.response!==1)return {cancelled:true};
+      // Let Windows fully dismiss the native modal before its parent is
+      // removed. Destroying the parent in the same compositor frame could
+      // leave a stale confirmation surface on some LTSC machines.
+      await new Promise(resolve=>setTimeout(resolve,50));
+      if(win&&!win.isDestroyed())win.hide();
       const state=structuredClone(getStore().state),note=state.notes.find(n=>n.id===id);if(!note)return {cancelled:true};
       state.recycleBin ||= [];state.recycleBin.unshift({...note,deletedAt:new Date().toISOString()});state.notes=state.notes.filter(n=>n.id!==id);
       state.attachments=(state.attachments||[]).filter(l=>l.childId!==id&&l.parentId!==id);
@@ -94,8 +115,8 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
         if(store.state.notes.find(n=>n.id===id)?.type!=='organizer'||!Array.isArray(value)||value.length>200)return {error:'无效的文件列表'};
         const items=[],errors=[];
         for(const file of value){if(typeof file!=='string'||!path.isAbsolute(file)){errors.push('没有取得文件路径');continue;}
-          try{const stat=await fs.stat(file),kind=stat.isDirectory()?'folder':/\.(exe|lnk|appref-ms|url)$/i.test(file)?'app':'file';const icon=kind==='folder'?'':await readIcon(file);
-            items.push({id:require('node:crypto').randomUUID(),path:file,name:path.basename(file),kind,icon,iconVersion:kind==='folder'||icon?ICON_VERSION:0});
+          try{const stat=await fs.stat(file),kind=stat.isDirectory()?'folder':/\.(exe|lnk|appref-ms|url)$/i.test(file)?'app':'file';const icon=await readIcon(file);
+            items.push({id:require('node:crypto').randomUUID(),path:file,name:path.basename(file),kind,icon,iconVersion:icon?ICON_VERSION:0});
           }catch{errors.push(path.basename(file)+' 无法读取');}
         }
         const draft=structuredClone(getStore().state),note=draft.notes.find(n=>n.id===id);if(!note)return {error:'便签已关闭'};note.desktopItems ||= [];
@@ -105,7 +126,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       if(store.state.notes.find(n=>n.id===id)?.type!=='organizer' || typeof value!=='string' || !path.isAbsolute(value))return {error:'invalid-path'};
       try{
         const stat=await fs.stat(value),kind=stat.isDirectory()?'folder':/\.(exe|lnk|appref-ms|url)$/i.test(value)?'app':'file';
-        const icon=kind==='folder'?'':await readIcon(value);
+        const icon=await readIcon(value);
         return {path:value,name:path.basename(value),kind,icon};
       }catch{return {error:'无法读取该文件，请检查路径和访问权限'};}
     }

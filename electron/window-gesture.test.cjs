@@ -33,3 +33,16 @@ test('resize commits native bounds and group updates only once on release', () =
   call('end');
   assert.deepEqual(bounds, { x: 20, y: 30, width: 420, height: 310 }); assert.equal(updates, 1);
 });
+
+test('all native resize edges use preview geometry and commit once', () => {
+  let handler, cursor={x:100,y:100},bounds={x:200,y:150,width:400,height:300};
+  const sender={},updates=[],preview={show(){},update(value){updates.push(value);},hide(){}};
+  const win={isDestroyed:()=>false,getBounds:()=>({...bounds}),setBounds:value=>{bounds=value;}};
+  registerWindowGesture({ipcMain:{on:(_,fn)=>{handler=fn;}},screen:{getCursorScreenPoint:()=>cursor},resizePreview:preview,resolveWindow:event=>event.sender===sender?win:null});
+  const call=(action,kind)=>{const event={sender};handler(event,action,kind);return event.returnValue;};
+  call('begin','resize:nw');cursor={x:140,y:130};call('update');
+  assert.deepEqual(updates.at(-1),{x:240,y:180,width:360,height:270});
+  assert.deepEqual(bounds,{x:200,y:150,width:400,height:300});
+  call('end','resize:nw');
+  assert.deepEqual(bounds,{x:240,y:180,width:360,height:270});
+});

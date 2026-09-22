@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: v1.1.0-beta.7.2
+          RELEASE_TAG: v1.1.0-beta.7.3
         run: |
           git fetch --tags --force
           if (-not (git tag --list $env:RELEASE_TAG)) {
@@ -46,20 +46,20 @@ jobs:
       - name: Build Windows release files
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.2
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.3
         run: |
           npx electron-builder --config electron-builder.production.cjs --win nsis --x64 --publish never
-          node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.7.2
+          node scripts/check-update-artifacts.cjs release-public 1.1.0-beta.7.3
 
       - name: Publish complete GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: v1.1.0-beta.7.2
+          RELEASE_TAG: v1.1.0-beta.7.3
         run: |
           gh release view $env:RELEASE_TAG 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --target $env:GITHUB_SHA --title "PinDo 1.1.0 beta 7.2" --notes "Fixes invisible desktop notes in compatibility mode. Compatibility now preserves Chromium rendering and reduces only transparency and complex motion. Diagnostic reports now include privacy-safe per-window visibility and bounds. Existing notes, settings and cloud accounts are preserved."
+            gh release create $env:RELEASE_TAG --target $env:GITHUB_SHA --title "PinDo 1.1.0 beta 7.3" --notes "Fixes note deletion confirmation cleanup, restores organizer icons and local targets after cloud sync, removes disruptive redundant redraws, adds lightweight preview resizing on every edge, and raises dock details above desktop notes. Existing notes, settings and cloud accounts are preserved."
           }
 
           $assets = Get-ChildItem "release-public" -File | Where-Object {

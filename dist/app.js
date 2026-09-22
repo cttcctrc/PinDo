@@ -220,6 +220,7 @@
   }
 
   let state = loadState();
+  let lastDesktopState = noteWindowId ? "" : JSON.stringify(state);
   let stateRevision = Number(window.pindoDesktop?.readRevision?.() || 0);
   let noteWindowVersion = Number(state.noteWindowVersion);
   delete state.noteWindowVersion;
@@ -263,7 +264,7 @@
       }
     } else {
       const result = window.pindoDesktop?.writeState(serialized, stateRevision);
-      if (result?.accepted) stateRevision = result.revision;
+      if (result?.accepted) { stateRevision = result.revision; lastDesktopState = serialized; }
     }
     // Native note windows use the canonical JSON file through scoped IPC.
     // Never let a one-note renderer overwrite the browser backup for the
@@ -623,7 +624,7 @@
           ${organizer ? "" : `<button data-action="menu" title="更多">${icons.menu}</button>`}
         </div>
       </header>
-      <div class="note-body"></div>${templateFab}${parentLink ? "" : '<button class="resize-handle" title="拖动调整尺寸" aria-label="调整便签尺寸"></button>'}`;
+      <div class="note-body"></div>${templateFab}${parentLink ? "" : '<span class="resize-edge resize-n" data-resize-edge="n"></span><span class="resize-edge resize-e" data-resize-edge="e"></span><span class="resize-edge resize-s" data-resize-edge="s"></span><span class="resize-edge resize-w" data-resize-edge="w"></span><span class="resize-edge resize-ne" data-resize-edge="ne"></span><span class="resize-edge resize-nw" data-resize-edge="nw"></span><span class="resize-edge resize-sw" data-resize-edge="sw"></span><button class="resize-handle" data-resize-edge="se" title="拖动调整尺寸" aria-label="调整便签尺寸"></button>'}`;
     noteLayer.appendChild(el);
     renderBody(el, note);
     bindNoteShell(el, note);
@@ -1285,13 +1286,13 @@
   }
 
   function enableResize(el, note) {
-    const handle = el.querySelector(".resize-handle");
-    if (!handle) return;
-    handle.addEventListener("pointerdown", event => {
+    const handles = el.querySelectorAll("[data-resize-edge]");
+    if (!handles.length) return;
+    handles.forEach(handle => handle.addEventListener("pointerdown", event => {
       event.stopPropagation();
       if (note.locked) { showNearTip(el, "便签已钉住，请在更多菜单中选择“拔出”"); return; }
       if (noteWindowId) {
-        nativeGesture(event, handle, el, "resize", bounds => applyNativeNoteBounds(note, bounds), () => refreshNativeNote());
+        nativeGesture(event, handle, el, `resize:${handle.dataset.resizeEdge || "se"}`, bounds => applyNativeNoteBounds(note, bounds), () => refreshNativeNote());
         return;
       }
       event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-resizing"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
@@ -1311,7 +1312,7 @@
       };
       const up = () => { el.classList.remove("is-resizing"); clearSizeMatchFeedback(); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); save(); };
       handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
-    });
+    }));
   }
 
   function showSizeMatchFeedback(target, axis, label) {
@@ -1371,7 +1372,12 @@
         if (e.target.closest("[data-note-color]")) { pop.remove(); showPalette(anchor, note); return; }
         if (e.target.closest("[data-duplicate]")) { state.notes.push({...structuredClone(note), id: uid(), z: ++zCounter, x: note.x + 24, y: note.y + 24, title: `${note.title} 副本`}); render(); }
         if (e.target.closest("[data-reset]")) { const metrics = defaultNoteMetrics(note.type); note.w = metrics.w; note.h = metrics.h; syncAttachedStack(note.id); render(); }
-        if (e.target.closest("[data-delete]")) { pop.remove(); moveNoteToRecycleBin(note); return; }
+        if (e.target.closest("[data-delete]")) {
+          pop.remove();
+          if (noteWindowId) void window.pindoNative.command("trash");
+          else if (confirm("删除这个便签？删除后可从回收站恢复。")) moveNoteToRecycleBin(note);
+          return;
+        }
         pop.remove();
       });
     });
@@ -2161,9 +2167,11 @@
   if (!noteWindowId) {
     window.pindoDesktop?.onStateChanged?.((serialized, revision) => {
       if (typeof serialized !== "string" || !Number.isSafeInteger(revision)) return;
+      if (serialized === lastDesktopState) { stateRevision = revision; return; }
       try {
         const incoming = JSON.parse(serialized);
         if (!incoming?.notes) return;
+        lastDesktopState = serialized;
         state = incoming;
         stateRevision = revision;
         render(false);
