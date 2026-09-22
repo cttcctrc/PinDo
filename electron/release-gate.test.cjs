@@ -1,0 +1,11 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(__dirname, '..');
+const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+test('main changes run packaged Windows validation', () => { const w=read('.github/workflows/windows-validation.yml'); assert.match(w,/branches: \[main\]/); assert.match(w,/electron-builder\.validation\.cjs/); assert.match(w,/scripts\/windows-smoke\.cjs/); assert.ok(fs.existsSync(path.join(root,'package-lock.json'))); });
+test('candidate publication requires successful validation', () => { const w=read('.github/workflows/windows-candidate.yml'),c=read('electron-builder.candidate.cjs'); assert.match(w,/conclusion == 'success'/); assert.match(c,/channel: 'test'/); assert.match(w,/--prerelease/); });
+test('promotion reuses candidate bytes', () => { const w=read('.github/workflows/promote-candidate.yml'); assert.match(w,/gh release download/); assert.match(w,/cp candidate\/test\.yml candidate\/latest\.yml/); assert.doesNotMatch(w,/electron-builder|npm (ci|install)/); });
+test('app supports stable and test update channels', () => { assert.match(read('dist/index.html'),/id="updateChannelSelect"/); assert.match(read('electron/main.cjs'),/autoUpdater\.channel = noteStore\?\.state\.settings\?\.updateChannel === 'test'/); });
+test('smoke validation captures native notes', () => { const s=read('electron/smoke-validation.cjs'); assert.match(s,/executeJavaScript/); assert.match(s,/resizeEdges === 8/); assert.match(s,/capturePage\(\)/); });

@@ -1,0 +1,39 @@
+name: Validate PinDo on Windows
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-validation:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Unit, migration and regression tests
+        run: npm test
+      - name: Check desktop architecture
+        run: npm run check:desktop
+      - name: Build unpacked Windows candidate
+        run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64
+      - name: Launch packaged app and capture native windows
+        run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-windows-validation-${{ github.sha }}
+          path: release-validation/smoke/**
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,62 @@
+name: Publish validated PinDo candidate
+on:
+  workflow_run:
+    workflows: ["Validate PinDo on Windows"]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  candidate:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out the validated commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build candidate installer
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.3-rc.${{ github.run_number }}
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+      - name: Re-run packaged smoke test on release bytes
+        run: node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+      - name: Publish test-channel prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: 1.1.0-beta.7.3-rc.${{ github.run_number }}
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          $tag = "v$env:VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag $tag $env:VALIDATED_SHA
+          git push origin $tag
+          gh release create $tag --target $env:VALIDATED_SHA --prerelease --title "PinDo $env:VERSION candidate" --notes "Automated Windows validation passed. Available only on the PinDo test update channel."
+          $assets = Get-ChildItem "release-candidate" -File | Where-Object { $_.Name -eq "test.yml" -or $_.Name -match "\.exe$" -or $_.Name -match "\.exe\.blockmap$" } | ForEach-Object { $_.FullName }
+          if ($assets.Count -lt 3) { throw "Expected candidate installer, blockmap and test.yml." }
+          gh release upload $tag $assets
+      - name: Preserve candidate and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-windows-candidate
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
+          if-no-files-found: warn
+          retention-days: 14

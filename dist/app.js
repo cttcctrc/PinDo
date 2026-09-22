@@ -229,6 +229,7 @@
   state.assistant ||= { x: null, y: null, tucked: false, tuckSide: "right" };
   state.assistant.tuckSide ||= "right";
   state.settings ||= { locale: "zh-CN", localFont: "system", englishFont: "nunito", uiSize: "medium", dodoScale: 1 };
+  state.settings.updateChannel ||= "latest";
   state.settings.locale ||= "zh-CN"; state.settings.localFont ||= "system"; state.settings.englishFont ||= "nunito"; state.settings.uiSize ||= "medium"; state.settings.dodoScale = clamp(Number(state.settings.dodoScale) || 1, .5, 2);
   state.recycleBin ||= [];
   state.attachments ||= [];
@@ -1799,9 +1800,10 @@
       ? `${state.recycleBin.map(note => `<div class="recycle-row"><span>${noteIcon(note.icon)}</span><strong title="${attr(note.title || "未命名便签")}">${escapeHtml(shortTitle(note.title || "未命名便签"))}</strong><button data-restore-note="${note.id}">恢复</button><button data-purge-note="${note.id}" class="purge-button" title="永久删除">×</button></div>`).join("")}<button class="empty-recycle" data-empty-recycle>清空回收站</button>`
       : '<div class="today-empty">回收站为空</div>';
     document.querySelectorAll("[data-ui-size]").forEach(button => button.classList.toggle("selected", button.dataset.uiSize === state.settings.uiSize));
-    const localFontSelect = document.querySelector("#localFontSelect"), englishFontSelect = document.querySelector("#englishFontSelect"), dodoSizeRange = document.querySelector("#dodoSizeRange"), dodoSizeValue = document.querySelector("#dodoSizeValue");
+    const localFontSelect = document.querySelector("#localFontSelect"), englishFontSelect = document.querySelector("#englishFontSelect"), updateChannelSelect = document.querySelector("#updateChannelSelect"), dodoSizeRange = document.querySelector("#dodoSizeRange"), dodoSizeValue = document.querySelector("#dodoSizeValue");
     if (localFontSelect) localFontSelect.value = state.settings.localFont;
     if (englishFontSelect) englishFontSelect.value = state.settings.englishFont;
+    if (updateChannelSelect) updateChannelSelect.value = state.settings.updateChannel || "latest";
     if (dodoSizeRange) dodoSizeRange.value = state.settings.dodoScale;
     if (dodoSizeValue) dodoSizeValue.textContent = `${Math.round(state.settings.dodoScale * 100)}%`;
     positionAssistant();
@@ -1991,6 +1993,7 @@
   settingsModal.addEventListener("pointerdown", event => { if (event.target === settingsModal) closeSettings(); });
   document.querySelector("#localFontSelect").addEventListener("change", event => { state.settings.localFont = event.target.value; applyInterfaceSettings(); save(); showToast("中文界面字体已更新"); });
   document.querySelector("#englishFontSelect").addEventListener("change", event => { state.settings.englishFont = event.target.value; applyInterfaceSettings(); save(); showToast("英文字体已更新"); });
+  document.querySelector("#updateChannelSelect")?.addEventListener("change", event => { state.settings.updateChannel = event.target.value === "test" ? "test" : "latest"; save(); showToast(state.settings.updateChannel === "test" ? "已切换到测试更新通道" : "已切换到稳定更新通道"); });
   document.querySelector(".ui-size-segments").addEventListener("click", event => {
     const button = event.target.closest("[data-ui-size]"); if (!button) return;
     state.settings.uiSize = button.dataset.uiSize; applyInterfaceSettings();

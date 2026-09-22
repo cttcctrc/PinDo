@@ -1,0 +1,27 @@
+name: Promote tested PinDo candidate
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Validated candidate tag, for example v1.1.0-beta.7.3-rc.12"
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: pindo-production
+    steps:
+      - name: Promote exact candidate bytes to stable update channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir candidate
+          gh release download "$TAG" --repo "$REPOSITORY" --dir candidate
+          test -f candidate/test.yml
+          cp candidate/test.yml candidate/latest.yml
+          gh release upload "$TAG" candidate/latest.yml --repo "$REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$REPOSITORY" --prerelease=false --latest --notes "Validated on the PinDo test channel and promoted without rebuilding. Existing notes, settings and cloud accounts are preserved."
