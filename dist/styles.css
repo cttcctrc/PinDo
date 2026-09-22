@@ -1712,3 +1712,7 @@ body.control-window-mode .settings-modal{background:transparent!important;backdr
 body.control-window-mode .settings-dialog{pointer-events:auto}
 .dodo-state-ghost{position:absolute;left:50%;bottom:calc(-8px * var(--dodo-scale));width:calc(184px * var(--dodo-scale));height:calc(184px * var(--dodo-scale));transform:translateX(-50%);object-fit:contain;pointer-events:none;z-index:3;animation:dodoGhostOut .3s ease forwards}
 @keyframes dodoGhostOut{from{opacity:1}to{opacity:0}}
+.cloud-settings{margin-top:18px;padding:18px;border:1px solid rgba(80,98,140,.12);border-radius:20px;background:linear-gradient(145deg,rgba(237,243,255,.9),rgba(247,241,255,.82))}
+.cloud-auth-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 10px}.cloud-auth-fields[hidden]{display:none}
+.cloud-auth-fields input{min-width:0;border:1px solid rgba(74,83,112,.15);border-radius:12px;background:rgba(255,255,255,.9);padding:11px 12px;color:#30333b;outline:none;font:inherit}.cloud-auth-fields input:focus{border-color:#6587dc;box-shadow:0 0 0 3px rgba(101,135,220,.12)}
+.cloud-actions{margin-top:12px}.cloud-actions button[hidden]{display:none}.cloud-settings .data-settings-status{display:block;margin-top:10px;line-height:1.5}

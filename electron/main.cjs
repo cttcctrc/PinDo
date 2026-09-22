@@ -1,5 +1,5 @@
 const electron = require('electron');
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, screen, safeStorage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,6 +12,7 @@ const { createControlHitTest } = require('./control-pointer.cjs');
 const { registerWindowGesture } = require('./window-gesture.cjs');
 const { ResizePreview } = require('./resize-preview.cjs');
 const { parseState, createBackup, newestValidBackup, listBackups } = require('./state-backup.cjs');
+const { CloudSyncManager } = require('./cloud-sync.cjs');
 
 app.setName('PinDo');
 if (process.platform === 'win32') app.setAppUserModelId('com.pindo.notes');
@@ -29,6 +30,7 @@ let noteStore;
 let noteWindowManager;
 let nativeFeatures;
 let resizePreview;
+let cloudSync;
 
 const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 const indexUrl = pathToFileURL(indexPath).href;
@@ -107,6 +109,7 @@ function saveCanonicalState(serialized) {
   pendingState = serialized;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushState, 400);
+  cloudSync?.schedule();
 }
 
 function noteContext(id) {
@@ -275,6 +278,40 @@ else {
         return { accepted: true, count: listBackups(backupPath()).length };
       }
       return { accepted: false, error: 'unsupported-action' };
+    });
+    cloudSync = new CloudSyncManager({
+      app, safeStorage,
+      getState: () => noteStore?.state || { notes: [] },
+      applyState: state => {
+        if (noteStore) createBackup(backupPath(), noteStore.serialize(), { force: true });
+        noteStore = new NoteStateStore(state);
+        pendingState = noteStore.serialize(); flushState(); broadcastState();
+      },
+      onStatus: status => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pindo:cloud-status', status); }
+    });
+    if (cloudSync.status().loggedIn) {
+      const initialCloudSync = setTimeout(() => {
+        void cloudSync.registerDevice().then(() => cloudSync.sync('startup')).catch(error => {
+          console.error('PinDo startup sync failed:', error);
+          cloudSync.onStatus(cloudSync.status({ error: error.message }));
+        });
+      }, 5000);
+      initialCloudSync.unref();
+    }
+    const periodicCloudSync = setInterval(() => {
+      if (cloudSync.status().loggedIn) void cloudSync.sync('periodic').catch(error => console.error('PinDo periodic sync failed:', error));
+    }, 5 * 60 * 1000);
+    periodicCloudSync.unref();
+    ipcMain.handle('pindo:cloud-action', async (event, action, value) => {
+      if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
+      try {
+        if (action === 'status') return { accepted: true, ...cloudSync.status() };
+        if (action === 'login' || action === 'signup') return { accepted: true, ...(await cloudSync.auth(action, value || {})) };
+        if (action === 'reset') { await cloudSync.auth('reset', value || {}); return { accepted: true }; }
+        if (action === 'sync') return { accepted: true, ...(await cloudSync.sync('manual')) };
+        if (action === 'logout') return { accepted: true, ...cloudSync.logout() };
+        return { accepted: false, error: 'unsupported-action' };
+      } catch (error) { return { accepted: false, error: String(error.message || error) }; }
     });
     createWindow();
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), onDesktopHostError: (id, reason) => console.error(`PinDo note ${id} desktop host failed:`, reason) });

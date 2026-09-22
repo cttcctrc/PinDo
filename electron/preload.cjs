@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   readRevision: () => ipcRenderer.sendSync('pindo:read-revision'),
   writeState: (serialized, revision) => ipcRenderer.sendSync('pindo:write-state', serialized, revision),
   dataAction: action => ipcRenderer.invoke('pindo:data-action', action),
+  cloudAction: (action, value) => ipcRenderer.invoke('pindo:cloud-action', action, value),
+  onCloudStatus: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('pindo:cloud-status', listener);
+    return () => ipcRenderer.removeListener('pindo:cloud-status', listener);
+  },
   onStateChanged: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, serialized, revision) => callback(serialized, revision);

@@ -2015,6 +2015,38 @@
     if (!confirm("导入会用文件中的数据替换当前内容。PinDo 会先自动备份当前数据，是否继续？")) return;
     await runDataAction("import", event.currentTarget);
   });
+  const cloudStatus = document.querySelector("#cloudSettingsStatus");
+  const cloudEmail = document.querySelector("#cloudEmail");
+  const cloudPassword = document.querySelector("#cloudPassword");
+  const cloudLogin = document.querySelector("#cloudLoginButton");
+  const cloudSignup = document.querySelector("#cloudSignupButton");
+  const cloudSyncButton = document.querySelector("#cloudSyncButton");
+  const cloudLogout = document.querySelector("#cloudLogoutButton");
+  function showCloudStatus(status = {}) {
+    const loggedIn = Boolean(status.loggedIn);
+    document.querySelector("#cloudAuthFields").hidden = loggedIn;
+    cloudLogin.hidden = loggedIn; cloudSignup.hidden = loggedIn; cloudSyncButton.hidden = !loggedIn; cloudLogout.hidden = !loggedIn;
+    if (status.error) cloudStatus.textContent = status.error;
+    else if (status.syncing) cloudStatus.textContent = "正在安全同步……";
+    else if (status.confirmationRequired) cloudStatus.textContent = "注册成功，请查收验证邮件后登录";
+    else if (loggedIn) cloudStatus.textContent = `${status.email || "已登录"} · ${status.lastSyncedAt ? `上次同步 ${new Date(status.lastSyncedAt).toLocaleString()}` : "等待首次同步"}`;
+    else cloudStatus.textContent = "未登录";
+  }
+  async function cloudAction(action, value, button) {
+    if (!window.pindoDesktop?.cloudAction) { showNearTip(button, "请安装 PinDo 7.0 Windows 版"); return; }
+    document.querySelectorAll(".cloud-actions button").forEach(item => item.disabled = true);
+    cloudStatus.textContent = action === "sync" ? "正在安全同步……" : "正在连接账号服务……";
+    const result = await window.pindoDesktop.cloudAction(action, value).catch(error => ({ accepted: false, error: error.message }));
+    document.querySelectorAll(".cloud-actions button").forEach(item => item.disabled = false);
+    if (!result?.accepted) { cloudStatus.textContent = result?.error || "操作失败，请稍后重试"; return; }
+    showCloudStatus(result); if (action === "sync") showToast("云同步完成");
+  }
+  cloudLogin?.addEventListener("click", event => cloudAction("login", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
+  cloudSignup?.addEventListener("click", event => cloudAction("signup", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
+  cloudSyncButton?.addEventListener("click", event => cloudAction("sync", null, event.currentTarget));
+  cloudLogout?.addEventListener("click", event => cloudAction("logout", null, event.currentTarget));
+  window.pindoDesktop?.onCloudStatus?.(showCloudStatus);
+  window.pindoDesktop?.cloudAction?.("status").then(showCloudStatus).catch(() => {});
   recycleList.addEventListener("click", event => {
     const restore = event.target.closest("[data-restore-note]");
     if (restore) { const index = state.recycleBin.findIndex(note => note.id === restore.dataset.restoreNote); if (index >= 0) { const [note] = state.recycleBin.splice(index, 1); delete note.deletedAt; note.z = ++zCounter; state.notes.push(note); render(); showToast("便签已恢复"); } return; }
