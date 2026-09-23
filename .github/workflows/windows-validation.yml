@@ -29,6 +29,22 @@ jobs:
         run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64
       - name: Launch packaged app and capture native windows
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
+      - name: Build installable PR test package
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.4-rc.${{ github.run_number }}
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+      - name: Upload installable PR test package
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-pr-${{ github.event.pull_request.number }}-installer
+          path: release-candidate/*.exe
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
