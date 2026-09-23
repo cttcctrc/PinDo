@@ -1,0 +1,58 @@
+name: Publish PinDo 7.4 test candidate
+on:
+  push:
+    branches: [fix/beta74-feedback]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'cttcctrc/PinDo'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Test desktop application
+        run: npm test
+      - name: Check desktop architecture
+        run: npm run check:desktop
+      - name: Build test-channel installer
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.4-rc.4
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+      - name: Smoke test packaged app
+        run: node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+      - name: Publish test-channel prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: 1.1.0-beta.7.4-rc.4
+        run: |
+          $tag = "v$env:VERSION"
+          $assets = Get-ChildItem "release-candidate" -File | Where-Object { $_.Name -eq "test.yml" -or $_.Name -match "\.exe$" -or $_.Name -match "\.exe\.blockmap$" } | ForEach-Object { $_.FullName }
+          if ($assets.Count -lt 3) { throw "Expected candidate installer, blockmap and test.yml." }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag $tag $env:GITHUB_SHA
+          git push origin $tag
+          gh release create $tag $assets --target $env:GITHUB_SHA --prerelease --title "PinDo $env:VERSION candidate" --notes "Windows validation passed. This version is available on the PinDo test update channel."
+      - name: Preserve candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-7-4-test-candidate
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
+          if-no-files-found: warn
+          retention-days: 14
