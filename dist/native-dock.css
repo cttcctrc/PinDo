@@ -3,6 +3,12 @@
 .tab i svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
 :root{--scale:1}#tabs{width:calc(170px * var(--scale));gap:calc(10px * var(--scale))}.tab{height:calc(52px * var(--scale));padding:calc(12px * var(--scale));gap:calc(10px * var(--scale))}.tab strong{font-size:calc(16px * var(--scale))}.tab i svg{width:calc(24px * var(--scale));height:calc(24px * var(--scale))}#preview{right:calc(180px * var(--scale));width:calc(100vw - 190px * var(--scale));font-size:calc(15px * var(--scale))}#preview strong{font-size:calc(18px * var(--scale))}#preview p{font-size:calc(14px * var(--scale))}#overflow{width:calc(240px * var(--scale))}
+@font-face{font-family:Nunito;src:url('./assets/fonts/Nunito-Variable.ttf') format('truetype');font-weight:200 1000}
+@font-face{font-family:DingTalk;src:url('./assets/fonts/DingTalk-JinBuTi.ttf') format('truetype')}
+@font-face{font-family:'Muyao Softbrush';src:url('./assets/fonts/Muyao-Softbrush.ttf') format('truetype')}
+html,body,button{font-family:var(--ui-latin-font,Nunito),var(--ui-local-font,'Microsoft YaHei UI'),sans-serif}
+/* Keep the hover summary inside the dock strip, clear of desktop notes. */
+#preview{right:8px;width:calc(170px * var(--scale) - 16px);max-height:55vh;overflow:auto;pointer-events:none}
 
 .tab{position:relative;transition:transform .16s ease,box-shadow .16s ease}
 .tab:hover{transform:scale(1.025);transform-origin:right center;box-shadow:0 7px 18px #0003}

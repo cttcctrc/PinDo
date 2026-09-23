@@ -1036,6 +1036,8 @@
       note.z = ++zCounter; el.style.zIndex = 6500; if (noteWindowId) window.pindoNative.command("focus-note"); else save();
     });
     const titleEditor = el.querySelector(".note-title");
+    // The header also starts native dragging. Keep its title gesture for editing.
+    titleEditor.addEventListener("pointerdown", event => event.stopPropagation());
     requireDoubleClickToEdit(titleEditor);
     titleEditor.addEventListener("input", event => {
       const titleEl = event.currentTarget, chars = Array.from(titleEl.innerText.replaceAll("\n", ""));
@@ -2062,10 +2064,9 @@
   function showCloudStatus(status = {}) {
     const loggedIn = Boolean(status.loggedIn);
     document.querySelector("#cloudAuthFields").hidden = loggedIn;
-    cloudLogin.hidden = loggedIn; cloudSignup.hidden = loggedIn; cloudSyncButton.hidden = !loggedIn; cloudLogout.hidden = !loggedIn;
+    cloudLogin.hidden = loggedIn; cloudSyncButton.hidden = !loggedIn; cloudLogout.hidden = !loggedIn;
     if (status.error) cloudStatus.textContent = status.error;
     else if (status.syncing) cloudStatus.textContent = "正在安全同步……";
-    else if (status.confirmationRequired) cloudStatus.textContent = "注册成功，请查收验证邮件后登录";
     else if (loggedIn) cloudStatus.textContent = `${status.email || "已登录"} · ${status.lastSyncedAt ? `上次同步 ${new Date(status.lastSyncedAt).toLocaleString()}` : "等待首次同步"}`;
     else cloudStatus.textContent = "未登录";
   }
@@ -2079,7 +2080,6 @@
     showCloudStatus(result); if (action === "sync") showToast("云同步完成");
   }
   cloudLogin?.addEventListener("click", event => cloudAction("login", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
-  cloudSignup?.addEventListener("click", event => cloudAction("signup", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
   cloudSyncButton?.addEventListener("click", event => cloudAction("sync", null, event.currentTarget));
   cloudLogout?.addEventListener("click", event => cloudAction("logout", null, event.currentTarget));
   window.pindoDesktop?.onCloudStatus?.(showCloudStatus);

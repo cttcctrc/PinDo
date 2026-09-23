@@ -358,7 +358,7 @@ else {
       if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
       try {
         if (action === 'status') return { accepted: true, ...cloudSync.status() };
-        if (action === 'login' || action === 'signup') return { accepted: true, ...(await cloudSync.auth(action, value || {})) };
+        if (action === 'login') return { accepted: true, ...(await cloudSync.auth(action, value || {})) };
         if (action === 'reset') { await cloudSync.auth('reset', value || {}); return { accepted: true }; }
         if (action === 'sync') return { accepted: true, ...(await cloudSync.sync('manual')) };
         if (action === 'logout') return { accepted: true, ...cloudSync.logout() };
@@ -372,7 +372,16 @@ else {
     nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
-    registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)) });
+    registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {
+      if (win !== mainWindow || !compatibilityState.enabled || process.platform !== 'win32') return;
+      // Software-only compositing on older Windows can retain a black frame
+      // after moving a transparent host. Recreate its visible surface once.
+      setTimeout(() => {
+        if (win.isDestroyed() || !win.isVisible()) return;
+        win.hide();
+        win.showInactive();
+      }, 0);
+    } });
     if (noteStore) broadcastState();
     createTray();
     screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); broadcastState(); });
@@ -384,6 +393,9 @@ else {
     autoUpdater.allowPrerelease = true;
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('update-available', () => {
+      if (manualUpdate) displayMessage({ type: 'info', title: 'PinDo 更新', message: '发现新版本，已在后台开始下载。', detail: '下载完成后会提醒你安装。' });
+    });
     autoUpdater.on('update-not-available', () => {
       checkingUpdate = false;
       if (manualUpdate) displayMessage({ type: 'info', message: '当前已是最新版本。' });
@@ -392,6 +404,7 @@ else {
     autoUpdater.on('update-downloaded', async () => {
       checkingUpdate = false;
       updateReady = true;
+      manualUpdate = false;
       const { response } = await dialog.showMessageBox({
         type: 'info', title: 'PinDo 更新', message: '新版 PinDo 已下载，可以现在安装。',
         detail: '选择“稍后”后，下次关闭 PinDo 时会自动安装。',
