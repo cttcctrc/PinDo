@@ -17,8 +17,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release-alias
-          gh release download v1.1.0-beta.7.4-rc.4 --repo "$GITHUB_REPOSITORY" --dir release-alias
-          test -f release-alias/test.yml
-          test -f release-alias/PinDo-Desktop-Test-1.1.0-beta.7.4-rc.4-x64.exe
-          test -f release-alias/PinDo-Desktop-Test-1.1.0-beta.7.4-rc.4-x64.exe.blockmap
+          base="https://github.com/cttcctrc/PinDo/releases/download/v1.1.0-beta.7.4-rc.4"
+          for file in test.yml PinDo-Desktop-Test-1.1.0-beta.7.4-rc.4-x64.exe PinDo-Desktop-Test-1.1.0-beta.7.4-rc.4-x64.exe.blockmap; do
+            curl -fL --retry 3 "$base/$file" -o "release-alias/$file"
+          done
           gh release create v1.1.0-test.7.4 release-alias/* --repo "$GITHUB_REPOSITORY" --target 4c3e89d53e9f8c23913c94b38167973146be68d9 --prerelease --title "PinDo 1.1.0-beta.7.4-rc.4 test-channel compatibility" --notes "Identical validated candidate bytes, tagged for the existing test-channel updater."
