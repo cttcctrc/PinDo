@@ -3,7 +3,7 @@ module.exports = {
   ...pkg.build,
   appId: 'com.pindo.canvas-preview',
   productName: 'PinDo Canvas Preview',
-  extraMetadata: { main: 'spike/desktop-canvas/main.cjs', version: '0.1.0-preview.1' },
+  extraMetadata: { main: 'spike/desktop-canvas/main.cjs', version: '0.1.0-preview.2' },
   directories: { output: 'release-canvas-preview' },
   files: [
     'spike/desktop-canvas/*.cjs', 'spike/desktop-canvas/*.html',

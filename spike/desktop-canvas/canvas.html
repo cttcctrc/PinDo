@@ -4,6 +4,7 @@
 (() => {
 'use strict';
 const canvas=document.getElementById('canvas');let state={notes:[]};let action=null;let saveTimer;
+canvas.addEventListener('pointerdown',event=>{const editable=event.target.closest('[contenteditable="true"]');if(editable)window.canvasPreview.focusEdit().then(ok=>{if(ok)editable.focus()})},true);
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 function persist(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>window.canvasPreview.save(state),350)}
 function regions(){window.canvasPreview.regions([...canvas.querySelectorAll('.note')].map(el=>{const r=el.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}}))}

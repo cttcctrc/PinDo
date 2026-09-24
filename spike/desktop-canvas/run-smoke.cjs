@@ -19,6 +19,7 @@ child.on('exit', code => {
     const report = JSON.parse(fs.readFileSync(path.join(output, 'report.json'), 'utf8'));
     assert.equal(report.passed, true);
     assert.equal(report.attached, true);
+    assert.equal(report.focusableOnHover, false);
     assert.ok(fs.statSync(path.join(output, 'canvas.png')).size > 1000);
     console.log('Canvas preview Windows smoke passed:', report);
   } catch (error) { console.error(error); process.exitCode = 1; }

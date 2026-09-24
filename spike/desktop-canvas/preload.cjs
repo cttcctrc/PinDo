@@ -5,5 +5,6 @@ contextBridge.exposeInMainWorld('canvasPreview', Object.freeze({
   save: state => ipcRenderer.invoke('preview:save', state),
   regions: value => ipcRenderer.send('preview:regions', value),
   gesture: active => ipcRenderer.send('preview:gesture', Boolean(active)),
+  focusEdit: () => ipcRenderer.invoke('preview:focus-edit'),
   exit: () => ipcRenderer.send('preview:exit')
 }));

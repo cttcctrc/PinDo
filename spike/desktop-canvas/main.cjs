@@ -43,7 +43,7 @@ async function createCanvas() {
   const bounds = screen.getPrimaryDisplay().bounds;
   canvas = new BrowserWindow({
     ...bounds, frame: false, transparent: true, backgroundColor: '#00000000',
-    hasShadow: false, resizable: false, show: false, skipTaskbar: true,
+    hasShadow: false, resizable: false, show: false, skipTaskbar: true, focusable: false,
     title: 'PinDo 画布技术验证版',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
@@ -56,6 +56,10 @@ async function createCanvas() {
   canvas.webContents.on('did-start-loading', () => hitTest.clear());
   canvas.on('close', event => { if (!quitting) { event.preventDefault(); canvas.hide(); hitTest.clear(); } });
   canvas.on('closed', () => { clearInterval(timer); canvas = null; });
+  canvas.on('blur', () => {
+    // A desktop hosted window must never reactivate Explorer when another app takes focus.
+    if (canvas && !canvas.isDestroyed()) canvas.setFocusable(false);
+  });
   canvas.webContents.once('did-finish-load', async () => {
     const result = await attachToWindowsDesktop(canvas);
     if (canvas?.isDestroyed()) return;
@@ -74,7 +78,7 @@ async function createCanvas() {
           const result = await canvas.webContents.executeJavaScript('window.canvasSmokeCheck()');
           const output = process.env.PINDO_CANVAS_SMOKE_OUTPUT || path.join(previewDirectory, 'smoke');
           fs.mkdirSync(output, { recursive: true });
-          fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ...result, attached: true, transparent: true }, null, 2));
+          fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ ...result, attached: true, transparent: true, focusableOnHover: canvas.isFocusable() }, null, 2));
           const image = await canvas.capturePage();
           fs.writeFileSync(path.join(output, 'canvas.png'), image.toPNG());
           console.log(JSON.stringify(result));
@@ -96,6 +100,12 @@ else app.whenReady().then(() => {
   });
   ipcMain.on('preview:regions', (event, regions) => { if (authorized(event)) hitTest?.update(regions); });
   ipcMain.on('preview:gesture', (event, active) => { if (authorized(event)) hitTest?.setDragging(active); });
+  ipcMain.handle('preview:focus-edit', event => {
+    if (!authorized(event) || !canvas?.isVisible()) return false;
+    canvas.setFocusable(true);
+    canvas.focus();
+    return true;
+  });
   ipcMain.on('preview:exit', event => { if (authorized(event)) stop(); });
   createTray();
   void createCanvas().catch(error => { console.error(error); dialog.showErrorBox('PinDo 画布验证失败', String(error)); stop(); });
