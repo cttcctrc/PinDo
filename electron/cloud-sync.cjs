@@ -45,16 +45,20 @@ function preserveDeviceLocalFields(nextState, localState) {
   return next;
 }
 
-function mergeStates(local, remote) {
+function noteHashes(state) {
+  return Object.fromEntries((state?.notes || []).map(note => [note.id, checksum(note)]));
+}
+
+function mergeStates(local, remote, lastSyncedNotes = {}) {
   if (!remote?.notes) return local;
   const merged = structuredClone(remote);
-  const remoteById = new Map(remote.notes.map(note => [note.id, note]));
+  const remoteById = new Map(remote.notes.map((note, index) => [note.id, index]));
   for (const note of local?.notes || []) {
-    const cloudNote = remoteById.get(note.id);
-    if (!cloudNote) { merged.notes.push(note); continue; }
-    if (JSON.stringify(cloudNote) !== JSON.stringify(note)) {
-      merged.notes.push({ ...note, id: `${note.id}-conflict-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, title: `${note.title || ''}（同步冲突副本）`, x: Number(note.x || 0) + 24, y: Number(note.y || 0) + 24 });
-    }
+    const index = remoteById.get(note.id);
+    if (index === undefined) { merged.notes.push(structuredClone(note)); continue; }
+    // A remote edit to the same note keeps its ID. Only prefer the local note
+    // when it changed since the last successful sync on this device.
+    if (lastSyncedNotes[note.id] && lastSyncedNotes[note.id] !== checksum(note)) merged.notes[index] = structuredClone(note);
   }
   return merged;
 }
@@ -91,7 +95,7 @@ class CloudSyncManager {
     return this.status({ confirmationRequired: action === 'signup' && !data.access_token });
   }
   async refresh() { const token = this.session?.refresh_token; if (!token) throw new Error('请重新登录'); const { data } = await this.request('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: JSON.stringify({ refresh_token: token }) }, false); this.saveSession(data); }
-  logout() { this.saveSession(null); this.meta.revision = 0; this.saveMeta(); this.onStatus(this.status()); return this.status(); }
+  logout() { this.saveSession(null); this.meta.revision = 0; delete this.meta.lastSyncedNotes; this.saveMeta(); this.onStatus(this.status()); return this.status(); }
   async registerDevice() {
     await this.request('/rest/v1/pindo_devices?on_conflict=id', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -104,7 +108,7 @@ class CloudSyncManager {
     if (this.running) return this.running;
     this.running = this.runSync(reason).finally(() => { this.running = null; }); return this.running;
   }
-  async runSync(reason) {
+  async runSync(reason, retries = 0) {
     this.onStatus(this.status({ syncing: true, reason }));
     const localFull = this.getState();
     const local = cloudSafeState(localFull);
@@ -116,7 +120,7 @@ class CloudSyncManager {
       // A newer revision with identical content only advances metadata. It
       // must not rebuild every renderer and interrupt typing/dragging.
       if (remote.checksum !== localChecksum) {
-        const merged = preserveDeviceLocalFields(mergeStates(local, remote.state), localFull);
+        const merged = preserveDeviceLocalFields(mergeStates(local, remote.state, this.meta.lastSyncedNotes), localFull);
         this.applyState(merged);
       }
       this.meta.revision = remote.revision;
@@ -125,11 +129,14 @@ class CloudSyncManager {
     if (remote.checksum !== currentChecksum) {
       const pushed = await this.request('/rest/v1/rpc/pindo_push_sync', { method: 'POST', body: JSON.stringify({ p_base_revision: this.meta.revision || remote.revision || 0, p_device_id: this.deviceId, p_payload: current, p_checksum: currentChecksum }) });
       if (pushed.data?.conflict) {
-        const merged = mergeStates(current, pushed.data.current?.state); this.applyState(merged); this.meta.revision = pushed.data.current?.revision || 0;
-        return this.runSync('conflict-merge');
+        if (retries >= 3) throw new Error('云同步遇到连续修改，已暂停重试；请稍后再试');
+        const merged = preserveDeviceLocalFields(mergeStates(current, pushed.data.current?.state, this.meta.lastSyncedNotes), this.getState());
+        this.applyState(merged); this.meta.revision = pushed.data.current?.revision || 0;
+        return this.runSync('conflict-merge', retries + 1);
       }
       this.meta.revision = pushed.data.revision;
     }
+    this.meta.lastSyncedNotes = noteHashes(cloudSafeState(this.getState()));
     this.meta.lastSyncedAt = Date.now(); this.saveMeta(); const result = this.status({ syncing: false }); this.onStatus(result); return result;
   }
 }
