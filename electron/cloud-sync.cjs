@@ -52,13 +52,29 @@ function noteHashes(state) {
 function mergeStates(local, remote, lastSyncedNotes = {}) {
   if (!remote?.notes) return local;
   const merged = structuredClone(remote);
-  const remoteById = new Map(remote.notes.map((note, index) => [note.id, index]));
+  const localIds = new Set((local?.notes || []).map(note => note.id));
+  // A missing note that existed at our last sync was deleted locally. Do not
+  // resurrect it just because another device advanced the cloud revision.
+  merged.notes = merged.notes.filter(note => localIds.has(note.id) || !lastSyncedNotes[note.id]);
+  const remoteById = new Map(merged.notes.map((note, index) => [note.id, index]));
   for (const note of local?.notes || []) {
     const index = remoteById.get(note.id);
-    if (index === undefined) { merged.notes.push(structuredClone(note)); continue; }
+    if (index === undefined) {
+      // Likewise honor a remote deletion if this copy is unchanged locally.
+      if (!lastSyncedNotes[note.id] || lastSyncedNotes[note.id] !== checksum(note)) merged.notes.push(structuredClone(note));
+      continue;
+    }
     // A remote edit to the same note keeps its ID. Only prefer the local note
     // when it changed since the last successful sync on this device.
     if (lastSyncedNotes[note.id] && lastSyncedNotes[note.id] !== checksum(note)) merged.notes[index] = structuredClone(note);
+  }
+  const recycled = new Set((merged.recycleBin || []).map(note => note.id));
+  for (const note of local?.recycleBin || []) if (!recycled.has(note.id)) {
+    merged.recycleBin ||= []; merged.recycleBin.push(structuredClone(note)); recycled.add(note.id);
+  }
+  if (merged.attachments) {
+    const surviving = new Set(merged.notes.map(note => note.id));
+    merged.attachments = merged.attachments.filter(link => surviving.has(link.parentId) && surviving.has(link.childId));
   }
   return merged;
 }

@@ -21,6 +21,19 @@ test('a local edit since the last sync retains the original ID', () => {
   const remote = { notes: [{ id: 'a', title: 'remote edit' }] };
   assert.deepEqual(mergeStates(local, remote, { a: checksum({ id: 'a', title: 'original' }) }).notes, local.notes);
 });
+test('locally recycled notes stay deleted after a newer remote revision', () => {
+  const copy = { id: 'a-conflict-1790138880051-abcdef', type: 'quick', title: 'A（同步冲突副本）' };
+  const local = { notes: [], recycleBin: [{ ...copy, deletedAt: 'now' }] };
+  const remote = { notes: [copy], recycleBin: [], attachments: [{ parentId: copy.id, childId: 'b' }] };
+  const merged = mergeStates(local, remote, { [copy.id]: checksum(copy) });
+  assert.deepEqual(merged.notes, []);
+  assert.deepEqual(merged.recycleBin, local.recycleBin);
+  assert.deepEqual(merged.attachments, []);
+});
+test('a remote deletion stays deleted when the local note has not changed', () => {
+  const note = { id: 'a', type: 'quick', title: 'A' };
+  assert.deepEqual(mergeStates({ notes: [note] }, { notes: [] }, { a: checksum(note) }).notes, []);
+});
 test('repeated cloud revisions do not multiply notes', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pindo-cloud-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

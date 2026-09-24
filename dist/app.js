@@ -2024,6 +2024,24 @@
   }
   document.querySelector("#backupNowButton")?.addEventListener("click", event => runDataAction("backup-now", event.currentTarget));
   document.querySelector("#exportDataButton")?.addEventListener("click", event => runDataAction("export", event.currentTarget));
+  document.querySelector("#cleanSyncCopiesButton")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
+    button.disabled = true;
+    dataSettingsStatus.textContent = "正在检查可恢复的同步重复副本……";
+    try {
+      const preview = await window.pindoDesktop.dataAction("scan-sync-copies");
+      if (!preview?.accepted) { dataSettingsStatus.textContent = preview?.error || "检查失败"; return; }
+      if (!preview.count) { dataSettingsStatus.textContent = "没有发现内容完全相同的同步冲突副本；内容不同的便签已保留"; return; }
+      dataSettingsStatus.textContent = `找到 ${preview.count} 个内容相同的同步冲突副本`;
+      if (!confirm(`找到 ${preview.count} 个内容相同的同步冲突副本。清理前会备份，副本将移入回收站，可随时恢复。内容不同的便签会保留。是否继续？`)) return;
+      const result = await window.pindoDesktop.dataAction("recycle-sync-copies", { expectedCount: preview.count });
+      if (!result?.accepted) { dataSettingsStatus.textContent = result?.error || "清理失败"; return; }
+      dataSettingsStatus.textContent = `已备份并将 ${result.count} 个重复副本移入回收站；可在回收站恢复`;
+      showToast(`已清理 ${result.count} 个相同的同步副本`);
+    } catch { dataSettingsStatus.textContent = "检查失败，请稍后再试"; }
+    finally { button.disabled = false; }
+  });
   document.querySelector("#importDataButton")?.addEventListener("click", async event => {
     if (!confirm("导入会用文件中的数据替换当前内容。PinDo 会先自动备份当前数据，是否继续？")) return;
     await runDataAction("import", event.currentTarget);

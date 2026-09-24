@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   readState: () => ipcRenderer.sendSync('pindo:read-state'),
   readRevision: () => ipcRenderer.sendSync('pindo:read-revision'),
   writeState: (serialized, revision) => ipcRenderer.sendSync('pindo:write-state', serialized, revision),
-  dataAction: action => ipcRenderer.invoke('pindo:data-action', action),
+  dataAction: (action, value) => ipcRenderer.invoke('pindo:data-action', action, value),
   diagnosticAction: (action, value) => ipcRenderer.invoke('pindo:diagnostic-action', action, value),
   cloudAction: (action, value) => ipcRenderer.invoke('pindo:cloud-action', action, value),
   onCloudStatus: callback => {

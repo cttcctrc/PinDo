@@ -13,6 +13,7 @@ const { registerWindowGesture } = require('./window-gesture.cjs');
 const { ResizePreview } = require('./resize-preview.cjs');
 const { parseState, createBackup, newestValidBackup, listBackups } = require('./state-backup.cjs');
 const { CloudSyncManager, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
+const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./cloud-duplicate-cleanup.cjs');
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 
@@ -310,7 +311,7 @@ else {
     diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), compatibility: compatibilityState });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
-    ipcMain.handle('pindo:data-action', async (event, action) => {
+    ipcMain.handle('pindo:data-action', async (event, action, value) => {
       if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
       if (action === 'export') return exportData();
       if (action === 'import') return importData();
@@ -318,6 +319,23 @@ else {
         if (!noteStore) return { accepted: false, error: '当前没有可备份的数据' };
         flushState(); createBackup(backupPath(), noteStore.serialize(), { force: true });
         return { accepted: true, count: listBackups(backupPath()).length };
+      }
+      if (action === 'scan-sync-copies') {
+        if (!noteStore) return { accepted: false, error: '当前没有便签数据' };
+        return { accepted: true, count: redundantConflictIds(noteStore.state).length };
+      }
+      if (action === 'recycle-sync-copies') {
+        if (!noteStore) return { accepted: false, error: '当前没有便签数据' };
+        if (cloudSync?.running) return { accepted: false, error: '云同步正在进行，请稍后再试' };
+        const ids = redundantConflictIds(noteStore.state);
+        if (!Number.isSafeInteger(value?.expectedCount) || value.expectedCount !== ids.length) return { accepted: false, error: '便签数量已变化，请重新检查后再清理' };
+        if (!ids.length) return { accepted: true, count: 0 };
+        flushState();
+        createBackup(backupPath(), noteStore.serialize(), { force: true });
+        noteStore = new NoteStateStore(moveRedundantConflictsToRecycleBin(noteStore.state, ids));
+        pendingState = noteStore.serialize(); flushState(); broadcastState();
+        cloudSync?.schedule();
+        return { accepted: true, count: ids.length };
       }
       return { accepted: false, error: 'unsupported-action' };
     });
