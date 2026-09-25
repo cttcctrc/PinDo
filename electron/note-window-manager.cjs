@@ -1,5 +1,6 @@
 const { pathToFileURL } = require('node:url');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
+const { partitionNotes } = require('./canvas-note-routing.cjs');
 
 const VALID_MODES = new Set(['desktop', 'top', 'bookmark']);
 const VALID_TYPES = new Set(['quick', 'todo', 'timeline', 'organizer']);
@@ -31,10 +32,11 @@ function nativeNoteView(note, displays) {
 
 /** Owns only native windows, never the note contents or local data file. */
 class NoteWindowManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, onClosed = () => {}, onDesktopHostError = () => {}, desktopHost = attachToWindowsDesktop }) {
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, onClosed = () => {}, onDesktopHostError = () => {}, desktopHost = attachToWindowsDesktop }) {
     this.BrowserWindow = BrowserWindow; this.screen = screen;
     this.indexPath = indexPath; this.preloadPath = preloadPath; this.onClosed = onClosed;
     this.onDesktopHostError = onDesktopHostError; this.desktopHost = desktopHost; this.compatibilityMode = compatibilityMode;
+    this.canvasMode = canvasMode;
     this.windows = new Map();
     this.modes = new Map();
   }
@@ -42,7 +44,9 @@ class NoteWindowManager {
   sync(notes) {
     const target = new Map();
     const known = new Map();
-    for (const note of Array.isArray(notes) ? notes : []) {
+    const routed = this.canvasMode ? partitionNotes(notes) : null;
+    const candidates = routed ? [...routed.native, ...routed.parked] : notes;
+    for (const note of Array.isArray(candidates) ? candidates : []) {
       const view = nativeNoteView(note, this.screen.getAllDisplays());
       if (!view) continue;
       known.set(view.id, view);

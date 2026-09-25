@@ -1,0 +1,50 @@
+name: Validate integrated PinDo canvas on Windows
+on:
+  push:
+    branches: [feature/canvas-migration]
+  pull_request:
+    branches: [fix/beta74-feedback]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  canvas-integration:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run check:desktop
+      - run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64 --publish never
+      - name: Build real-data test-channel canvas installer
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.4-rc.canvas
+        run: npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+      - name: Inspect Windows shell availability
+        shell: pwsh
+        run: |
+          if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) {
+            Start-Process "$env:WINDIR\explorer.exe"
+            Start-Sleep -Seconds 4
+          }
+          Get-Process explorer -ErrorAction SilentlyContinue | Select-Object Id,SessionId,MainWindowHandle
+          [Console]::WriteLine("Interactive=$([Environment]::UserInteractive)")
+      - name: Validate original multiple window mode
+        continue-on-error: true
+        run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/native-smoke
+      - name: Validate shared canvas mode
+        run: node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-validation/canvas-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pindo-canvas-integration-evidence
+          path: |
+            release-validation/*-smoke/**
+            release-candidate/*.exe
+          if-no-files-found: warn
+          retention-days: 14

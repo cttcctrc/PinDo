@@ -26,7 +26,7 @@ jobs:
       - name: Build candidate installer
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.3-rc.${{ github.run_number }}
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.4-rc.${{ github.run_number }}
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: 1.1.0-beta.7.3-rc.${{ github.run_number }}
+          VERSION: 1.1.0-beta.7.4-rc.${{ github.run_number }}
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           $tag = "v$env:VERSION"

@@ -9,10 +9,15 @@ fs.rmSync(output, { recursive: true, force: true }); fs.mkdirSync(output, { recu
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'pindo-smoke-'));
 const child = spawn(executable, [`--user-data-dir=${profile}`], { windowsHide: true, env: { ...process.env, PINDO_SMOKE_TEST: '1', PINDO_SMOKE_OUTPUT: output }, stdio: ['ignore', 'pipe', 'pipe'] });
 child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
-const timer = setTimeout(() => child.kill(), 45000);
+let timedOut = false;
+const timer = setTimeout(() => { timedOut = true; child.kill(); }, 45000);
 child.once('exit', code => {
   clearTimeout(timer);
-  try { const report = JSON.parse(fs.readFileSync(path.join(output, 'smoke-report.json'), 'utf8')); if (code !== 0 || !report.passed || !report.screenshots?.length) throw new Error(report.error || `PinDo exited with ${code}`); console.log(`[PinDo] Windows smoke test passed: ${report.checks.length} checks, ${report.screenshots.length} screenshots.`); }
+  try { const reportPath = path.join(output, 'smoke-report.json');
+    if (!fs.existsSync(reportPath)) fs.writeFileSync(reportPath, JSON.stringify({ passed: false, error: timedOut ? 'No smoke report after 45 seconds; desktop shell or renderer may be unavailable' : `PinDo exited with ${code} before writing a smoke report` }, null, 2));
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    if (code !== 0 || !report.passed || !report.screenshots?.length) throw new Error(report.error || `PinDo exited with ${code}`);
+    console.log(`[PinDo] Windows smoke test passed: ${report.checks.length} checks, ${report.screenshots.length} screenshots.`); }
   finally { fs.rmSync(profile, { recursive: true, force: true }); }
 });
 child.once('error', error => { clearTimeout(timer); fs.rmSync(profile, { recursive: true, force: true }); throw error; });

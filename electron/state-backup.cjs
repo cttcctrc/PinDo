@@ -20,7 +20,9 @@ function listBackups(directory) {
     return fs.readdirSync(directory)
       .filter(name => /^pindo-backup-.*\.json$/i.test(name))
       .map(name => ({ name, file: path.join(directory, name), time: fs.statSync(path.join(directory, name)).mtimeMs }))
-      .sort((a, b) => b.time - a.time);
+      // Windows can assign the same mtime to several fast consecutive writes.
+      // The ISO timestamp in the backup name is the stable creation order.
+      .sort((a, b) => b.name.localeCompare(a.name));
   } catch { return []; }
 }
 

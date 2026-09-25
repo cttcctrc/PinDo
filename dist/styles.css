@@ -41,6 +41,19 @@ body.control-window-mode .toast { display: none !important; }
 body.control-window-mode .app-shell { background: transparent; }
 body.control-window-mode .assistant { inset: 0 auto auto 0; }
 body.control-window-mode .settings-modal { z-index: 12000; }
+/* Real Windows desktop icons are drawn by Explorer behind this surface. */
+html:has(body.canvas-window-mode),
+body.canvas-window-mode,
+body.canvas-window-mode .app-shell,
+body.canvas-window-mode .desktop,
+body.canvas-window-mode .note-layer { background: transparent !important; }
+body.canvas-window-mode .desktop { width: 100%; height: 100%; }
+body.canvas-window-mode .desktop::after,
+body.canvas-window-mode .app-bar,
+body.canvas-window-mode .assistant,
+body.canvas-window-mode .bookmark-dock,
+body.canvas-window-mode .desktop-hint,
+body.canvas-window-mode .left-dock-target { display: none !important; }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 

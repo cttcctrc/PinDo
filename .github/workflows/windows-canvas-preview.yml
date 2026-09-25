@@ -1,0 +1,31 @@
+name: Windows canvas technical preview
+on:
+  push:
+    branches: [spike/desktop-canvas]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test spike/desktop-canvas/*.test.cjs
+      - run: npx electron-builder --config spike/desktop-canvas/builder.cjs --win dir --x64 --publish never
+      - run: node spike/desktop-canvas/run-smoke.cjs
+      - run: npx electron-builder --config spike/desktop-canvas/builder.cjs --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PinDo-canvas-preview-Windows
+          path: |
+            release-canvas-preview/*.exe
+            release-canvas-preview/smoke/report.json
+            release-canvas-preview/smoke/canvas.png
+          retention-days: 14
