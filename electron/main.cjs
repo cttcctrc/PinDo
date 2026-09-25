@@ -18,8 +18,14 @@ const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 
-app.setName('PinDo');
-if (process.platform === 'win32') app.setAppUserModelId('com.pindo.notes');
+const canvasCandidate = require('../package.json').canvasCandidate === true;
+app.setName(canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
+if (process.platform === 'win32') app.setAppUserModelId(canvasCandidate ? 'com.pindo.canvas-test' : 'com.pindo.notes');
+if (canvasCandidate) {
+  const candidateData = path.join(app.getPath('appData'), 'PinDo Canvas Test');
+  fs.mkdirSync(candidateData, { recursive: true });
+  app.setPath('userData', candidateData);
+}
 const compatibilityState = prepareCompatibility(app);
 
 let mainWindow;
@@ -162,7 +168,7 @@ function saveCanonicalState(serialized) {
   pendingState = serialized;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushState, 400);
-  cloudSync?.schedule();
+  if (!canvasCandidate) cloudSync?.schedule();
 }
 
 function noteContext(id) {
@@ -201,6 +207,10 @@ function displayMessage(message) {
 }
 
 async function checkUpdate(manual = false) {
+  if (canvasCandidate) {
+    if (manual) displayMessage({ type: 'info', message: '画布测试版不会自动更新。' });
+    return;
+  }
   if (updateReady) {
     const response = await dialog.showMessageBox({
       type: 'info', title: 'PinDo 更新', message: '新版已经下载完成，要现在安装吗？',
@@ -240,9 +250,9 @@ function createTray() {
   let icon = nativeImage.createFromPath(source);
   if (!icon.isEmpty()) icon = icon.resize({ width: 32, height: 32, quality: 'best' });
   tray = new Tray(icon);
-  tray.setToolTip('PinDo · Dodo');
+  tray.setToolTip(canvasCandidate ? 'PinDo 画布测试版' : 'PinDo · Dodo');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '更新软件', click: () => { void checkUpdate(true); } },
+    ...canvasCandidate ? [] : [{ label: '更新软件', click: () => { void checkUpdate(true); } }],
     { label: '关闭软件', click: () => { quitting = true; flushState(); app.quit(); } }
   ]));
   tray.on('double-click', showWindow);
@@ -258,7 +268,7 @@ function createWindow() {
     y: Math.max(workArea.y, workArea.y + workArea.height - controlHeight - 28),
     width: controlWidth, height: controlHeight, minWidth: 380, minHeight: 620,
     show: false, frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true,
-    title: 'PinDo · Dodo', backgroundColor: '#00000000', hasShadow: false,
+    title: canvasCandidate ? 'PinDo 画布测试版 · Dodo' : 'PinDo · Dodo', backgroundColor: '#00000000', hasShadow: false,
     icon: app.isPackaged
       ? path.join(process.resourcesPath, 'pindo-logo.png')
       : path.join(__dirname, '..', 'dist', 'assets', 'pindo-logo.png'),
@@ -300,7 +310,7 @@ else {
     smokeTrace('Electron ready');
     readStateFile();
     smokeTrace('local state read');
-    if(process.platform==='win32' && app.isPackaged){
+    if(process.platform==='win32' && app.isPackaged && !canvasCandidate){
       const flag=path.join(app.getPath('userData'),'login-default-v1');
       if(!fs.existsSync(flag)){try{app.setLoginItemSettings({openAtLogin:true,path:process.execPath});fs.mkdirSync(path.dirname(flag),{recursive:true});fs.writeFileSync(flag,'enabled');}catch(error){console.error('PinDo login startup:',error);}}
     }
@@ -353,7 +363,7 @@ else {
         createBackup(backupPath(), noteStore.serialize(), { force: true });
         noteStore = new NoteStateStore(moveRedundantConflictsToRecycleBin(noteStore.state, ids));
         pendingState = noteStore.serialize(); flushState(); broadcastState();
-        cloudSync?.schedule();
+        if (!canvasCandidate) cloudSync?.schedule();
         return { accepted: true, count: ids.length };
       }
       return { accepted: false, error: 'unsupported-action' };
@@ -378,7 +388,7 @@ else {
       },
       onStatus: status => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pindo:cloud-status', status); }
     });
-    if (cloudSync.status().loggedIn) {
+    if (!canvasCandidate && cloudSync.status().loggedIn) {
       const initialCloudSync = setTimeout(() => {
         void cloudSync.registerDevice().then(() => cloudSync.sync('startup')).catch(error => {
           console.error('PinDo startup sync failed:', error);
@@ -388,11 +398,14 @@ else {
       initialCloudSync.unref();
     }
     const periodicCloudSync = setInterval(() => {
-      if (cloudSync.status().loggedIn) void cloudSync.sync('periodic').catch(error => console.error('PinDo periodic sync failed:', error));
+      if (!canvasCandidate && cloudSync.status().loggedIn) void cloudSync.sync('periodic').catch(error => console.error('PinDo periodic sync failed:', error));
     }, 5 * 60 * 1000);
     periodicCloudSync.unref();
     ipcMain.handle('pindo:cloud-action', async (event, action, value) => {
       if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
+      if (canvasCandidate) return action === 'status'
+        ? { accepted: true, ...cloudSync.status(), loggedIn: false, error: '画布测试版暂未启用云同步' }
+        : { accepted: false, error: '画布测试版暂未启用云同步，请使用现有 PinDo 同步' };
       try {
         if (action === 'status') return { accepted: true, ...cloudSync.status() };
         if (action === 'login') return { accepted: true, ...(await cloudSync.auth(action, value || {})) };
@@ -406,7 +419,7 @@ else {
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
-    if (process.env.PINDO_CANVAS_EXPERIMENT === '1' && process.platform === 'win32') {
+    if ((canvasCandidate || process.env.PINDO_CANVAS_EXPERIMENT === '1') && process.platform === 'win32') {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'),
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
         onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); }
@@ -436,7 +449,7 @@ else {
     screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); desktopCanvas?.resize(); broadcastState(); });
     screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); broadcastState(); });
 
-    updaterAvailable = fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'));
+    updaterAvailable = !canvasCandidate && fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'));
     // PinDo is currently distributed as beta builds. Explicitly allow a newer
     // prerelease from GitHub Releases; change this to false for the first stable release.
     autoUpdater.allowPrerelease = true;

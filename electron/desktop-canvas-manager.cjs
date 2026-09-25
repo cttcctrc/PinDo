@@ -1,5 +1,5 @@
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
-const { createCanvasHitTest } = require('../spike/desktop-canvas/hit-test.cjs');
+const { createCanvasHitTest } = require('./canvas-hit-test.cjs');
 
 /** Owns the single, desktop-hosted surface. Never owns or serializes note data. */
 class DesktopCanvasManager {

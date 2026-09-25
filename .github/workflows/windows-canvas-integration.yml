@@ -21,6 +21,8 @@ jobs:
       - run: npm test
       - run: npm run check:desktop
       - run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64 --publish never
+      - name: Build isolated canvas test installer
+        run: npx electron-builder --config electron-builder.canvas-candidate.cjs --win nsis --x64 --publish never
       - name: Inspect Windows shell availability
         shell: pwsh
         run: |
@@ -34,12 +36,13 @@ jobs:
         continue-on-error: true
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/native-smoke
       - name: Validate shared canvas mode
-        run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/canvas-smoke
-        env:
-          PINDO_CANVAS_EXPERIMENT: '1'
+        run: node scripts/windows-smoke.cjs "release-canvas-candidate/win-unpacked/PinDo Canvas Test.exe" release-validation/canvas-smoke
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: pindo-canvas-integration-evidence
-          path: release-validation/*-smoke/**
+          path: |
+            release-validation/*-smoke/**
+            release-canvas-candidate/*.exe
+          if-no-files-found: warn
           retention-days: 14
