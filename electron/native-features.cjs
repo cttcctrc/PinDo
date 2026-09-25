@@ -6,7 +6,7 @@ const { normalizeGroups, createGroupGestures } = require('./native-groups.cjs');
 const { registerCapture } = require('./native-capture.cjs');
 const { createFileIconReader, ICON_VERSION } = require('./file-icon.cjs');
 const { EdgePreview } = require('./edge-preview.cjs');
-function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getStore, persist, broadcast, indexPath, preloadPath}) {
+function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath}) {
   const {ipcMain,screen,BrowserWindow,dialog,shell,app}=electron;
   const readIcon = createFileIconReader(electron);
   const refreshedIcons = new Set();
@@ -54,6 +54,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
   function role(event){
     if(!event?.sender || event.senderFrame!==event.sender.mainFrame)return null;
     if(event.sender===mainWindow.webContents && event.senderFrame.url.split('?')[0]===base)return 'control';
+    if(event.sender===getCanvasWindow()?.webContents && event.senderFrame.url.split('?')[0]===base)return 'canvas';
     if(event.sender===dock.window.webContents && event.senderFrame.url.split('?')[0]===pathToFileURL(path.join(path.dirname(indexPath),'native-dock.html')).href)return 'dock';
     return noteIdentity(event) ? 'note' : null;
   }
@@ -71,7 +72,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
   }
   ipcMain.handle('pindo:native-command',async(event,action,value)=>{
     const kind=role(event);if(!kind)return {error:'unauthorized'};
-    const id=noteIdentity(event), store=getStore();
+    const id=kind==='canvas' && typeof value?.noteId==='string' ? value.noteId : noteIdentity(event), store=getStore();
     if(action==='focus-control' && kind==='control'){mainWindow.moveTop();return true;}
     if(action==='focus-note' && kind==='note'){manager.activate?.(id);manager.windows.get(id)?.moveTop();return true;}
     if(action==='focus-note-item' && kind==='control'){
@@ -110,8 +111,9 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       }
       commit(state);return true;
     }
-    if(['describe-file','import-files'].includes(action) && kind==='note'){
+    if(['describe-file','import-files'].includes(action) && (kind==='note'||kind==='canvas')){
       if(action==='import-files'){
+        if(kind==='canvas')value=value?.paths;
         if(store.state.notes.find(n=>n.id===id)?.type!=='organizer'||!Array.isArray(value)||value.length>200)return {error:'无效的文件列表'};
         const items=[],errors=[];
         for(const file of value){if(typeof file!=='string'||!path.isAbsolute(file)){errors.push('没有取得文件路径');continue;}
@@ -130,13 +132,13 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
         return {path:value,name:path.basename(value),kind,icon};
       }catch{return {error:'无法读取该文件，请检查路径和访问权限'};}
     }
-    if(action==='open-item' && kind==='note'){
-      const note=store.state.notes.find(n=>n.id===id),item=note?.type==='organizer'&&note.desktopItems?.find(i=>i.id===value);
+    if(action==='open-item' && (kind==='note'||kind==='canvas')){
+      const note=store.state.notes.find(n=>n.id===id),item=note?.type==='organizer'&&note.desktopItems?.find(i=>i.id===(kind==='canvas'?value?.itemId:value));
       if(!item?.path || !path.isAbsolute(item.path))return {error:'旧项目没有保存本地路径，请重新拖入一次'};
       try{const error=await shell.openPath(item.path);return error?{error}:{accepted:true};}catch{return {error:'无法打开该项目，请检查文件是否已移动'};}
     }
-    if(action==='reveal-item' && kind==='note'){
-      const note=store.state.notes.find(n=>n.id===id),item=note?.type==='organizer'&&note.desktopItems?.find(i=>i.id===value);
+    if(action==='reveal-item' && (kind==='note'||kind==='canvas')){
+      const note=store.state.notes.find(n=>n.id===id),item=note?.type==='organizer'&&note.desktopItems?.find(i=>i.id===(kind==='canvas'?value?.itemId:value));
       if(!item?.path || !path.isAbsolute(item.path))return {error:'旧项目没有保存本地路径，请重新拖入一次'};
       try{shell.showItemInFolder(item.path);return {accepted:true};}catch{return {error:'无法打开文件所在位置'};}
     }

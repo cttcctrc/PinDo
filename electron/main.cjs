@@ -6,6 +6,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { NoteStateStore } = require('./note-state-store.cjs');
 const { NoteWindowManager } = require('./note-window-manager.cjs');
+const { DesktopCanvasManager } = require('./desktop-canvas-manager.cjs');
 const { registerNativeFeatures } = require('./native-features.cjs');
 const { registerNoteIpc } = require('./note-ipc.cjs');
 const { createControlHitTest } = require('./control-pointer.cjs');
@@ -32,6 +33,7 @@ let updateReady = false;
 let updaterAvailable = false;
 let noteStore;
 let noteWindowManager;
+let desktopCanvas;
 let nativeFeatures;
 let resizePreview;
 let cloudSync;
@@ -61,6 +63,10 @@ function flushState() {
 
 function trustedSender(event) {
   return event.sender === mainWindow?.webContents && event.senderFrame?.url?.split('?')[0] === indexUrl;
+}
+
+function trustedCanvasSender(event) {
+  return event.sender === desktopCanvas?.window?.webContents && event.senderFrame?.url?.split('?')[0] === indexUrl;
 }
 
 function readStateFile() {
@@ -171,6 +177,7 @@ function broadcastState(sourceId) {
   if (mainWindow && !mainWindow.isDestroyed() && noteStore) {
     mainWindow.webContents.send('pindo:state-changed', noteStore.serialize(), noteStore.revision);
   }
+  if (desktopCanvas?.active && noteStore) desktopCanvas.window.webContents.send('pindo:state-changed', noteStore.serialize(), noteStore.revision);
 }
 
 function showWindow() {
@@ -286,12 +293,12 @@ else {
       if(!fs.existsSync(flag)){try{app.setLoginItemSettings({openAtLogin:true,path:process.execPath});fs.mkdirSync(path.dirname(flag),{recursive:true});fs.writeFileSync(flag,'enabled');}catch(error){console.error('PinDo login startup:',error);}}
     }
     ipcMain.on('pindo:read-state', event => {
-      if (!trustedSender(event)) { event.returnValue = null; return; }
+      if (!trustedSender(event) && !trustedCanvasSender(event)) { event.returnValue = null; return; }
       event.returnValue = noteStore?.serialize() || readStateFile();
     });
-    ipcMain.on('pindo:read-revision', event => { event.returnValue = trustedSender(event) ? (noteStore?.revision || 0) : null; });
+    ipcMain.on('pindo:read-revision', event => { event.returnValue = trustedSender(event) || trustedCanvasSender(event) ? (noteStore?.revision || 0) : null; });
     ipcMain.on('pindo:write-state', (event, serialized, revision) => {
-      if (!trustedSender(event) || typeof serialized !== 'string' || serialized.length > 20_000_000) { event.returnValue = { accepted: false, reason: 'invalid' }; return; }
+      if ((!trustedSender(event) && !(desktopCanvas?.active && trustedCanvasSender(event))) || typeof serialized !== 'string' || serialized.length > 20_000_000) { event.returnValue = { accepted: false, reason: 'invalid' }; return; }
       let parsed;
       try { parsed = JSON.parse(serialized); } catch { event.returnValue = { accepted: false, reason: 'invalid-json' }; return; }
       if (!noteStore) {
@@ -386,8 +393,18 @@ else {
     createWindow();
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
+    if (process.env.PINDO_CANVAS_EXPERIMENT === '1' && process.platform === 'win32') {
+      desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'),
+        onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
+        onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); }
+      });
+      ipcMain.on('pindo:canvas-regions', (event, rectangles) => { if (trustedCanvasSender(event)) desktopCanvas.regions(rectangles); });
+      ipcMain.on('pindo:canvas-gesture', (event, active) => { if (trustedCanvasSender(event)) desktopCanvas.gesture(Boolean(active)); });
+      ipcMain.handle('pindo:canvas-focus-edit', event => trustedCanvasSender(event) && desktopCanvas.focusEdit());
+      void desktopCanvas.open();
+    }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {
@@ -402,7 +419,7 @@ else {
     } });
     if (noteStore) broadcastState();
     createTray();
-    screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); broadcastState(); });
+    screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); desktopCanvas?.resize(); broadcastState(); });
     screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); broadcastState(); });
 
     updaterAvailable = fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'));
@@ -442,7 +459,7 @@ else {
     }
     if (process.env.PINDO_SMOKE_TEST === '1') {
       setTimeout(() => {
-        void runSmokeValidation({ app, mainWindow, noteWindowManager, getStore: () => noteStore, outputDirectory: process.env.PINDO_SMOKE_OUTPUT || path.join(app.getPath('temp'), 'pindo-smoke') })
+        void runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore: () => noteStore, outputDirectory: process.env.PINDO_SMOKE_OUTPUT || path.join(app.getPath('temp'), 'pindo-smoke') })
           .then(report => { quitting = true; flushState(); app.exit(report.passed ? 0 : 1); })
           .catch(error => { console.error('PinDo smoke test failed:', error); quitting = true; app.exit(1); });
       }, 1200);
@@ -455,6 +472,7 @@ else {
     nativeFeatures?.close();
     resizePreview?.close();
     noteWindowManager?.closeAll();
+    desktopCanvas?.close();
     diagnostics?.markCleanExit();
     flushState();
   });
