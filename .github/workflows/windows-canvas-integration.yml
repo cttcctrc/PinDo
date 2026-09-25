@@ -24,6 +24,10 @@ jobs:
       - name: Inspect Windows shell availability
         shell: pwsh
         run: |
+          if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) {
+            Start-Process "$env:WINDIR\explorer.exe"
+            Start-Sleep -Seconds 4
+          }
           Get-Process explorer -ErrorAction SilentlyContinue | Select-Object Id,SessionId,MainWindowHandle
           [Console]::WriteLine("Interactive=$([Environment]::UserInteractive)")
       - name: Validate original multiple window mode
