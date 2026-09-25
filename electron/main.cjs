@@ -16,9 +16,11 @@ const { parseState, createBackup, newestValidBackup, listBackups } = require('./
 const { CloudSyncManager, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
 const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./cloud-duplicate-cleanup.cjs');
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
+const { readDesktopMode, writeDesktopMode } = require('./desktop-mode.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 
-const canvasCandidate = require('../package.json').canvasCandidate === true;
+const packageMetadata = require('../package.json');
+const canvasCandidate = packageMetadata.canvasCandidate === true;
 app.setName(canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
 if (process.platform === 'win32') app.setAppUserModelId(canvasCandidate ? 'com.pindo.canvas-test' : 'com.pindo.notes');
 if (canvasCandidate) {
@@ -27,6 +29,7 @@ if (canvasCandidate) {
   app.setPath('userData', candidateData);
 }
 const compatibilityState = prepareCompatibility(app);
+const desktopMode = readDesktopMode(app, canvasCandidate || packageMetadata.canvasModeDefault === true);
 
 let mainWindow;
 let tray;
@@ -58,6 +61,16 @@ function smokeTrace(stage, error) {
 smokeTrace('module loaded');
 const statePath = () => path.join(app.getPath('userData'), 'notes.json');
 const backupPath = () => path.join(app.getPath('userData'), 'backups');
+const canvasMigrationFlag = () => path.join(app.getPath('userData'), 'canvas-migration-backup-v1');
+
+function backupBeforeCanvasMigration(force = false) {
+  if (!noteStore) return false;
+  if (!force && fs.existsSync(canvasMigrationFlag())) return false;
+  flushState();
+  const backup = createBackup(backupPath(), noteStore.serialize(), { force: true });
+  fs.writeFileSync(canvasMigrationFlag(), JSON.stringify({ at: Date.now(), backup }), { encoding: 'utf8', mode: 0o600 });
+  return true;
+}
 
 function flushState() {
   clearTimeout(saveTimer);
@@ -310,6 +323,7 @@ else {
     smokeTrace('Electron ready');
     readStateFile();
     smokeTrace('local state read');
+    if (desktopMode.enabled) backupBeforeCanvasMigration();
     if(process.platform==='win32' && app.isPackaged && !canvasCandidate){
       const flag=path.join(app.getPath('userData'),'login-default-v1');
       if(!fs.existsSync(flag)){try{app.setLoginItemSettings({openAtLogin:true,path:process.execPath});fs.mkdirSync(path.dirname(flag),{recursive:true});fs.writeFileSync(flag,'enabled');}catch(error){console.error('PinDo login startup:',error);}}
@@ -374,6 +388,14 @@ else {
       if (action === 'reset-windows') return resetWindowPositions();
       if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility };
       if (action === 'compatibility-set') return { accepted: true, ...diagnostics.setCompatibility(Boolean(value?.enabled)), restartRequired: true };
+      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode };
+      if (action === 'desktop-mode-set') {
+        const enabled = Boolean(value?.enabled);
+        if (enabled) backupBeforeCanvasMigration(true);
+        Object.assign(desktopMode, writeDesktopMode(app, enabled));
+        diagnostics.record('desktop-mode-changed', { enabled });
+        return { accepted: true, ...desktopMode, restartRequired: true };
+      }
       return { accepted: false, error: 'unsupported-action' };
     });
     cloudSync = new CloudSyncManager({
@@ -419,7 +441,7 @@ else {
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
-    if ((canvasCandidate || process.env.PINDO_CANVAS_EXPERIMENT === '1') && process.platform === 'win32') {
+    if ((desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1') && process.platform === 'win32') {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'),
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
         onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); }

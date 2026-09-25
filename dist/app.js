@@ -2076,6 +2076,25 @@
   document.querySelector("#exportDiagnosticsButton")?.addEventListener("click", event => runDiagnosticAction("diagnostics-export", null, event.currentTarget));
   compatibilityButton?.addEventListener("click", event => runDiagnosticAction("compatibility-set", { enabled: !compatibilityEnabled }, event.currentTarget));
   window.pindoDesktop?.diagnosticAction?.("compatibility-status").then(showCompatibilityStatus).catch(() => {});
+  const desktopModeButton = document.querySelector("#desktopModeButton");
+  const desktopModeStatus = document.querySelector("#desktopModeStatus");
+  let desktopModeEnabled = false;
+  function showDesktopModeStatus(value = {}) {
+    desktopModeEnabled = Boolean(value.enabled);
+    desktopModeButton.textContent = desktopModeEnabled ? "切回原窗口模式" : "启用画布模式";
+    desktopModeStatus.textContent = desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
+  }
+  desktopModeButton?.addEventListener("click", async event => {
+    const button = event.currentTarget; button.disabled = true;
+    desktopModeStatus.textContent = desktopModeEnabled ? "正在保存原窗口模式……" : "正在备份数据并启用画布模式……";
+    try {
+      const result = await window.pindoDesktop?.diagnosticAction?.("desktop-mode-set", { enabled: !desktopModeEnabled });
+      if (!result?.accepted) { desktopModeStatus.textContent = result?.error || "模式切换失败"; return; }
+      showDesktopModeStatus(result); desktopModeStatus.textContent += "；重启 PinDo 后生效";
+    } catch { desktopModeStatus.textContent = "模式切换失败，请稍后重试"; }
+    finally { button.disabled = false; }
+  });
+  window.pindoDesktop?.diagnosticAction?.("desktop-mode-status").then(showDesktopModeStatus).catch(() => {});
   const cloudStatus = document.querySelector("#cloudSettingsStatus");
   const cloudEmail = document.querySelector("#cloudEmail");
   const cloudPassword = document.querySelector("#cloudPassword");
