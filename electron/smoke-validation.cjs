@@ -22,7 +22,7 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
     check('native note count', noteWindowManager.windows.size === expected, `${noteWindowManager.windows.size}/${expected}`);
     if (desktopCanvas) {
       const win = desktopCanvas.window;
-      const view = await win.webContents.executeJavaScript("(() => ({ count: document.querySelectorAll('#noteLayer .note').length, transparent: getComputedStyle(document.body).backgroundColor, editable: Boolean(document.querySelector('.note [contenteditable=true]')) }))()");
+      const view = await win.webContents.executeJavaScript("(() => { const title = document.querySelector('#noteLayer .note .note-title'); const initiallyLocked = title?.getAttribute('contenteditable') === 'false'; title?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return { count: document.querySelectorAll('#noteLayer .note').length, transparent: getComputedStyle(document.body).backgroundColor, editable: initiallyLocked && title?.getAttribute('contenteditable') === 'true' }; })()");
       const expectedCanvas = store.state.notes.filter(note => note.mode === 'desktop').length;
       check('desktop notes share one transparent canvas', view.count === expectedCanvas && view.transparent === 'rgba(0, 0, 0, 0)' && view.editable, JSON.stringify(view));
       check('canvas has no hover focus', !win.isFocusable());
