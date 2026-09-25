@@ -2,6 +2,8 @@ name: Validate integrated PinDo canvas on Windows
 on:
   push:
     branches: [feature/canvas-migration]
+  pull_request:
+    branches: [fix/beta74-feedback]
   workflow_dispatch:
 permissions:
   contents: read
