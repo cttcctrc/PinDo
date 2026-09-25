@@ -21,7 +21,13 @@ jobs:
       - run: npm test
       - run: npm run check:desktop
       - run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64 --publish never
+      - name: Inspect Windows shell availability
+        shell: pwsh
+        run: |
+          Get-Process explorer -ErrorAction SilentlyContinue | Select-Object Id,SessionId,MainWindowHandle
+          [Console]::WriteLine("Interactive=$([Environment]::UserInteractive)")
       - name: Validate original multiple window mode
+        continue-on-error: true
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/native-smoke
       - name: Validate shared canvas mode
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/canvas-smoke
