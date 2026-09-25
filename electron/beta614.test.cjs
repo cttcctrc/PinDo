@@ -9,7 +9,7 @@ test('settings exposes backup, export and import through a scoped desktop bridge
   const html = read('dist/index.html'), app = read('dist/app.js'), preload = read('electron/preload.cjs');
   assert.match(html, /id="backupNowButton"/); assert.match(html, /id="exportDataButton"/); assert.match(html, /id="importDataButton"/);
   assert.match(app, /runDataAction\("backup-now"/); assert.match(app, /runDataAction\("export"/); assert.match(app, /runDataAction\("import"/);
-  assert.match(preload, /dataAction: action => ipcRenderer\.invoke\('pindo:data-action', action\)/);
+  assert.match(preload, /dataAction: \(action, value\) => ipcRenderer\.invoke\('pindo:data-action', action, value\)/);
 });
 
 test('main process backs up current data before import and can recover a corrupt state', () => {

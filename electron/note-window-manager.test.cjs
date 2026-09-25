@@ -51,6 +51,27 @@ test('opens and closes separate windows, without creating windows for bookmarks'
   assert.equal(manager.windows.size, 0);
 });
 
+test('canvas mode retains only true top-layer native windows and can roll back', () => {
+  const created = [];
+  class FakeWindow {
+    constructor() { this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
+    on(event, callback) { if (event === 'closed') this.closed = callback; }
+    loadFile() {}
+    isDestroyed() { return Boolean(this.destroyed); }
+    setAlwaysOnTop() {}
+    showInactive() {}
+    destroy() { this.destroyed = true; this.closed?.(); }
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', canvasMode: true });
+  const notes = [note(), note({ id: 'pinned', mode: 'top', x: 100 }), note({ id: 'stored', mode: 'bookmark' })];
+  manager.sync(notes);
+  assert.deepEqual([...manager.windows.keys()], ['pinned']);
+  manager.canvasMode = false;
+  manager.sync(notes);
+  assert.deepEqual([...manager.windows.keys()].sort(), ['note-1', 'pinned']);
+  assert.equal(created.length, 2);
+});
+
 test('attaches desktop notes before showing them and keeps top notes out of Explorer', async () => {
   const created = [], attached = [];
   class FakeWindow {

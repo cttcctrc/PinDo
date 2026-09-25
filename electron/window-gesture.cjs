@@ -1,5 +1,5 @@
 // All coordinates come from Electron in DIP, never from a moving renderer.
-function registerWindowGesture({ ipcMain, screen, resolveWindow, hooks = {}, resizePreview = null }) {
+function registerWindowGesture({ ipcMain, screen, resolveWindow, hooks = {}, resizePreview = null, refreshAfterMove = () => {} }) {
   const sessions = new WeakMap();
   const resizeBounds = (origin, cursor, start, direction) => {
     const minWidth = 280, minHeight = 210;
@@ -53,7 +53,10 @@ function registerWindowGesture({ ipcMain, screen, resolveWindow, hooks = {}, res
       if (finalBounds) win.setBounds(finalBounds);
     }
     event.returnValue = win.getBounds();
-    if (action === 'end' || action === 'cancel') { win.pindoGestureActive = false; sessions.delete(event.sender); }
+    if (action === 'end' || action === 'cancel') {
+      win.pindoGestureActive = false; sessions.delete(event.sender);
+      if (session.kind === 'move' && action === 'end') refreshAfterMove(win);
+    }
   });
 }
 module.exports = { registerWindowGesture };

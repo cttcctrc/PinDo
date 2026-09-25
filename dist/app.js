@@ -5,9 +5,11 @@
   const query = new URLSearchParams(location.search);
   const noteWindowId = query.get("noteWindow");
   const controlWindow = query.get("controlWindow") === "1";
+  const canvasWindow = query.get("canvasWindow") === "1";
   const compatibilityMode = query.get("compatibility") === "1";
   if (noteWindowId) document.body.classList.add("note-window-mode");
   if (controlWindow) document.body.classList.add("control-window-mode");
+  if (canvasWindow) document.body.classList.add("canvas-window-mode");
   if (compatibilityMode) document.body.classList.add("compatibility-mode");
   const COLORS = ["#fff0dc", "#dfe8ff", "#f0ddff", "#dff1e7", "#ffe4da", "#e8eef8"];
   const PIN_COLORS = ["#ff7044", "#467df4", "#8356e8", "#4fa674", "#f05f3b", "#386ee8"];
@@ -451,7 +453,7 @@
 
   // Warm only the common idle assets. Mood sheets are decoded lazily when a
   // state is actually entered, reducing startup work and memory pressure.
-  if (!noteWindowId) ["idle_breathe", "blink", "look_around"].forEach(loadDodoImage);
+  if (!noteWindowId && !canvasWindow) ["idle_breathe", "blink", "look_around"].forEach(loadDodoImage);
   function noteById(id) { return state.notes.find(note => note.id === id); }
   function visibleNoteById(id) { const note = noteById(id); return note?.mode !== "bookmark" ? note : null; }
   function attachmentByChild(noteId) { if (noteWindowId && noteId === noteWindowId && nativeContext.parentId) return {parentId:nativeContext.parentId,childId:noteId}; return state.attachments.find(link => link.childId === noteId); }
@@ -529,10 +531,12 @@
     }
     const bookmarks = state.notes.filter(note => note.mode === "bookmark");
     const visibleLimit = Math.max(1, Math.floor((desktop.clientHeight - 56) / 120) - (bookmarks.length > 1 ? 1 : 0));
-    state.notes.filter(note => note.mode !== "bookmark").forEach(renderNote);
-    bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
-    if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
-    renderAssistant();
+    state.notes.filter(note => note.mode !== "bookmark" && (!canvasWindow || note.mode === "desktop")).forEach(renderNote);
+    if (!canvasWindow) {
+      bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
+      if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
+    }
+    if (!canvasWindow) renderAssistant();
     if (persist) save();
   }
 
@@ -683,15 +687,15 @@
         event.stopPropagation();
         if (event.target.closest(".organizer-remove")) { note.desktopItems = note.desktopItems.filter(entry => entry.id !== item.id); refreshOrganizer(note); showToast("已从桌面整理中移除，原文件不受影响"); return; }
         if (card.dataset.justDragged || organizerEditNotes.has(note.id)) return;
-        if (!noteWindowId) { showNearTip(card, "请在 Windows 版本打开本地项目"); return; }
-        const result = await window.pindoNative.command("open-item", item.id);
+        if (!noteWindowId && !canvasWindow) { showNearTip(card, "请在 Windows 版本打开本地项目"); return; }
+        const result = await window.pindoNative.command("open-item", canvasWindow ? { noteId: note.id, itemId: item.id } : item.id);
         if (result?.error) showNearTip(card, result.error);
       });
       card.addEventListener("contextmenu", event => {
         event.preventDefault(); event.stopPropagation();
         showMiniPopover(card, '<button data-reveal-organizer-item>打开文件所在位置</button><button data-remove-organizer-item>从桌面整理中移除</button>', pop => {
           pop.addEventListener("click", async click => {
-            if (click.target.closest("[data-reveal-organizer-item]")) { const result = await window.pindoNative.command("reveal-item", item.id); if (result?.error) showNearTip(card, result.error); pop.remove(); return; }
+            if (click.target.closest("[data-reveal-organizer-item]")) { const result = await window.pindoNative.command("reveal-item", canvasWindow ? { noteId: note.id, itemId: item.id } : item.id); if (result?.error) showNearTip(card, result.error); pop.remove(); return; }
             if (!click.target.closest("[data-remove-organizer-item]")) return; note.desktopItems = note.desktopItems.filter(entry => entry.id !== item.id); pop.remove(); refreshOrganizer(note); showToast("已从桌面整理中移除，原文件不受影响");
           });
         });
@@ -704,11 +708,11 @@
     zone.addEventListener("drop", async event => {
       event.preventDefault(); event.stopPropagation(); zone.classList.remove("drag-over");
       if (organizerEditNotes.has(note.id)) return;
-      if(noteWindowId){
+      if(noteWindowId || canvasWindow){
         const paths=[...(event.dataTransfer?.files||[])].map(file=>window.pindoNative.pathForFile(file)).filter(Boolean);
         if(!paths.length){showNearTip(zone,"没有取得文件路径，请从 Windows 文件资源管理器拖入");return;}
-        const result=await window.pindoNative.command("import-files",paths);
-        refreshNativeNote();
+        const result=await window.pindoNative.command("import-files",canvasWindow ? {noteId:note.id,paths} : paths);
+        if(noteWindowId)refreshNativeNote();
         if(result.error)showNearTip(document.querySelector(".organizer-drop-zone")||zone,result.error);
         else showToast(`已加入 ${result.count} 项`);
         return;
@@ -1036,6 +1040,8 @@
       note.z = ++zCounter; el.style.zIndex = 6500; if (noteWindowId) window.pindoNative.command("focus-note"); else save();
     });
     const titleEditor = el.querySelector(".note-title");
+    // The header also starts native dragging. Keep its title gesture for editing.
+    titleEditor.addEventListener("pointerdown", event => event.stopPropagation());
     requireDoubleClickToEdit(titleEditor);
     titleEditor.addEventListener("input", event => {
       const titleEl = event.currentTarget, chars = Array.from(titleEl.innerText.replaceAll("\n", ""));
@@ -2022,6 +2028,24 @@
   }
   document.querySelector("#backupNowButton")?.addEventListener("click", event => runDataAction("backup-now", event.currentTarget));
   document.querySelector("#exportDataButton")?.addEventListener("click", event => runDataAction("export", event.currentTarget));
+  document.querySelector("#cleanSyncCopiesButton")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
+    button.disabled = true;
+    dataSettingsStatus.textContent = "正在检查可恢复的同步重复副本……";
+    try {
+      const preview = await window.pindoDesktop.dataAction("scan-sync-copies");
+      if (!preview?.accepted) { dataSettingsStatus.textContent = preview?.error || "检查失败"; return; }
+      if (!preview.count) { dataSettingsStatus.textContent = "没有发现内容完全相同的同步冲突副本；内容不同的便签已保留"; return; }
+      dataSettingsStatus.textContent = `找到 ${preview.count} 个内容相同的同步冲突副本`;
+      if (!confirm(`找到 ${preview.count} 个内容相同的同步冲突副本。清理前会备份，副本将移入回收站，可随时恢复。内容不同的便签会保留。是否继续？`)) return;
+      const result = await window.pindoDesktop.dataAction("recycle-sync-copies", { expectedCount: preview.count });
+      if (!result?.accepted) { dataSettingsStatus.textContent = result?.error || "清理失败"; return; }
+      dataSettingsStatus.textContent = `已备份并将 ${result.count} 个重复副本移入回收站；可在回收站恢复`;
+      showToast(`已清理 ${result.count} 个相同的同步副本`);
+    } catch { dataSettingsStatus.textContent = "检查失败，请稍后再试"; }
+    finally { button.disabled = false; }
+  });
   document.querySelector("#importDataButton")?.addEventListener("click", async event => {
     if (!confirm("导入会用文件中的数据替换当前内容。PinDo 会先自动备份当前数据，是否继续？")) return;
     await runDataAction("import", event.currentTarget);
@@ -2052,6 +2076,25 @@
   document.querySelector("#exportDiagnosticsButton")?.addEventListener("click", event => runDiagnosticAction("diagnostics-export", null, event.currentTarget));
   compatibilityButton?.addEventListener("click", event => runDiagnosticAction("compatibility-set", { enabled: !compatibilityEnabled }, event.currentTarget));
   window.pindoDesktop?.diagnosticAction?.("compatibility-status").then(showCompatibilityStatus).catch(() => {});
+  const desktopModeButton = document.querySelector("#desktopModeButton");
+  const desktopModeStatus = document.querySelector("#desktopModeStatus");
+  let desktopModeEnabled = false;
+  function showDesktopModeStatus(value = {}) {
+    desktopModeEnabled = Boolean(value.enabled);
+    desktopModeButton.textContent = desktopModeEnabled ? "切回原窗口模式" : "启用画布模式";
+    desktopModeStatus.textContent = desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
+  }
+  desktopModeButton?.addEventListener("click", async event => {
+    const button = event.currentTarget; button.disabled = true;
+    desktopModeStatus.textContent = desktopModeEnabled ? "正在保存原窗口模式……" : "正在备份数据并启用画布模式……";
+    try {
+      const result = await window.pindoDesktop?.diagnosticAction?.("desktop-mode-set", { enabled: !desktopModeEnabled });
+      if (!result?.accepted) { desktopModeStatus.textContent = result?.error || "模式切换失败"; return; }
+      showDesktopModeStatus(result); desktopModeStatus.textContent += "；重启 PinDo 后生效";
+    } catch { desktopModeStatus.textContent = "模式切换失败，请稍后重试"; }
+    finally { button.disabled = false; }
+  });
+  window.pindoDesktop?.diagnosticAction?.("desktop-mode-status").then(showDesktopModeStatus).catch(() => {});
   const cloudStatus = document.querySelector("#cloudSettingsStatus");
   const cloudEmail = document.querySelector("#cloudEmail");
   const cloudPassword = document.querySelector("#cloudPassword");
@@ -2062,10 +2105,9 @@
   function showCloudStatus(status = {}) {
     const loggedIn = Boolean(status.loggedIn);
     document.querySelector("#cloudAuthFields").hidden = loggedIn;
-    cloudLogin.hidden = loggedIn; cloudSignup.hidden = loggedIn; cloudSyncButton.hidden = !loggedIn; cloudLogout.hidden = !loggedIn;
+    cloudLogin.hidden = loggedIn; cloudSyncButton.hidden = !loggedIn; cloudLogout.hidden = !loggedIn;
     if (status.error) cloudStatus.textContent = status.error;
     else if (status.syncing) cloudStatus.textContent = "正在安全同步……";
-    else if (status.confirmationRequired) cloudStatus.textContent = "注册成功，请查收验证邮件后登录";
     else if (loggedIn) cloudStatus.textContent = `${status.email || "已登录"} · ${status.lastSyncedAt ? `上次同步 ${new Date(status.lastSyncedAt).toLocaleString()}` : "等待首次同步"}`;
     else cloudStatus.textContent = "未登录";
   }
@@ -2079,7 +2121,6 @@
     showCloudStatus(result); if (action === "sync") showToast("云同步完成");
   }
   cloudLogin?.addEventListener("click", event => cloudAction("login", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
-  cloudSignup?.addEventListener("click", event => cloudAction("signup", { email: cloudEmail.value.trim(), password: cloudPassword.value }, event.currentTarget));
   cloudSyncButton?.addEventListener("click", event => cloudAction("sync", null, event.currentTarget));
   cloudLogout?.addEventListener("click", event => cloudAction("logout", null, event.currentTarget));
   window.pindoDesktop?.onCloudStatus?.(showCloudStatus);
@@ -2209,7 +2250,32 @@
     schedule();
   }
 
+  if (canvasWindow && window.pindoDesktop?.setCanvasRegions) {
+    let scheduled = 0, previous = "";
+    const publish = () => {
+      scheduled = 0;
+      const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
+      const regions = [...document.querySelectorAll(selector)].filter(el => el.getClientRects().length).map(el => {
+        const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      const serialized = JSON.stringify(regions);
+      if (serialized !== previous) { previous = serialized; window.pindoDesktop.setCanvasRegions(regions); }
+    };
+    const schedule = () => { if (!scheduled) scheduled = requestAnimationFrame(publish); };
+    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    window.addEventListener('resize', schedule);
+    window.pindoDesktop.onCanvasRefresh(schedule);
+    document.addEventListener('pointerdown', event => {
+      const editable = event.target.closest('[contenteditable="true"], input:not([readonly]), textarea');
+      if (editable) void window.pindoDesktop.focusCanvasEditor().then(ok => { if (ok && editable.isConnected) editable.focus(); });
+      if (event.target.closest('.note-header, [data-resize-edge]')) window.pindoDesktop.setCanvasGesture(true);
+    }, true);
+    document.addEventListener('pointerup', () => window.pindoDesktop.setCanvasGesture(false), true);
+    document.addEventListener('pointercancel', () => window.pindoDesktop.setCanvasGesture(false), true);
+    schedule();
+  }
+
   render();
   if (controlWindow && state.assistant.tucked) window.pindoNative.command("dodo-dock", {side:state.assistant.tuckSide,scale:state.settings.dodoScale});
-  if (!noteWindowId) { checkDueReminders(); playDodoIdle(); setInterval(checkDueReminders, 30000); setInterval(refreshDodoMood, 1000); }
+  if (!noteWindowId && !canvasWindow) { checkDueReminders(); playDodoIdle(); setInterval(checkDueReminders, 30000); setInterval(refreshDodoMood, 1000); }
 })();
