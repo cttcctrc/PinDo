@@ -41,6 +41,15 @@ let diagnostics;
 
 const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 const indexUrl = pathToFileURL(indexPath).href;
+function smokeTrace(stage, error) {
+  if (process.env.PINDO_SMOKE_TEST !== '1') return;
+  try {
+    const directory = process.env.PINDO_SMOKE_OUTPUT || path.join(app.getPath('temp'), 'pindo-smoke');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.appendFileSync(path.join(directory, 'startup.log'), `${new Date().toISOString()} ${stage}${error ? ` ${String(error.stack || error)}` : ''}\n`);
+  } catch { /* Diagnostics must never affect app startup. */ }
+}
+smokeTrace('module loaded');
 const statePath = () => path.join(app.getPath('userData'), 'notes.json');
 const backupPath = () => path.join(app.getPath('userData'), 'backups');
 
@@ -283,11 +292,14 @@ function createWindow() {
   mainWindow.loadFile(indexPath, { query: { controlWindow: '1', compatibility: compatibilityState.enabled ? '1' : '0' } });
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!app.requestSingleInstanceLock()) { smokeTrace('single instance denied'); app.quit(); }
 else {
+  smokeTrace('single instance acquired');
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
+    smokeTrace('Electron ready');
     readStateFile();
+    smokeTrace('local state read');
     if(process.platform==='win32' && app.isPackaged){
       const flag=path.join(app.getPath('userData'),'login-default-v1');
       if(!fs.existsSync(flag)){try{app.setLoginItemSettings({openAtLogin:true,path:process.execPath});fs.mkdirSync(path.dirname(flag),{recursive:true});fs.writeFileSync(flag,'enabled');}catch(error){console.error('PinDo login startup:',error);}}
@@ -391,6 +403,7 @@ else {
       } catch (error) { return { accepted: false, error: String(error.message || error) }; }
     });
     createWindow();
+    smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
     if (process.env.PINDO_CANVAS_EXPERIMENT === '1' && process.platform === 'win32') {
@@ -418,6 +431,7 @@ else {
       }, 0);
     } });
     if (noteStore) broadcastState();
+    smokeTrace('note windows synchronized');
     createTray();
     screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); desktopCanvas?.resize(); broadcastState(); });
     screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); broadcastState(); });
@@ -458,13 +472,15 @@ else {
       setInterval(() => { void checkUpdate(); }, 6 * 60 * 60 * 1000);
     }
     if (process.env.PINDO_SMOKE_TEST === '1') {
+      smokeTrace('smoke scheduled');
       setTimeout(() => {
+        smokeTrace('smoke started');
         void runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore: () => noteStore, outputDirectory: process.env.PINDO_SMOKE_OUTPUT || path.join(app.getPath('temp'), 'pindo-smoke') })
           .then(report => { quitting = true; flushState(); app.exit(report.passed ? 0 : 1); })
           .catch(error => { console.error('PinDo smoke test failed:', error); quitting = true; app.exit(1); });
       }, 1200);
     }
-  });
+  }).catch(error => { smokeTrace('startup failed', error); console.error('PinDo startup failed:', error); app.exit(1); });
   app.on('before-quit', () => {
     quitting = true;
     // Destroy child note windows before Electron tears down Chromium. This
