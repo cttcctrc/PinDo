@@ -33,7 +33,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.4-rc.${{ github.run_number }}
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
