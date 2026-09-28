@@ -1,0 +1,30 @@
+name: Promote validated PinDo beta 7.5 rc.4 once
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/promote-beta75-rc4-once.yml]
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: pindo-production
+    steps:
+      - name: Promote the exact validated candidate to stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v1.1.0-beta.7.5-rc.4
+          VALIDATED_SHA: 21ce4f1f698030f33e06cb864ac25946d1b288bf
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          target="$(gh api "repos/$REPOSITORY/releases/tags/$TAG" --jq .target_commitish)"
+          test "$target" = "$VALIDATED_SHA"
+          mkdir candidate
+          gh release download "$TAG" --repo "$REPOSITORY" --dir candidate
+          test -f candidate/test.yml
+          test "$(find candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
+          test "$(find candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
+          cp candidate/test.yml candidate/latest.yml
+          gh release upload "$TAG" candidate/latest.yml --repo "$REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$REPOSITORY" --prerelease=false --latest --notes "PinDo beta 7.5 正式发布：统一随手记、待办和时间轴的字号渲染；14px 不再受界面缩放或便签类型默认样式影响。复用已通过 Windows 验证的候选安装包，现有便签、设置和云同步数据保持不变。"
