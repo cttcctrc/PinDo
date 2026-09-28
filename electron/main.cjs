@@ -16,7 +16,7 @@ const { parseState, createBackup, newestValidBackup, listBackups } = require('./
 const { CloudSyncManager, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
 const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./cloud-duplicate-cleanup.cjs');
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
-const { readDesktopMode, writeDesktopMode } = require('./desktop-mode.cjs');
+const { readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas } = require('./desktop-mode.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 
 const packageMetadata = require('../package.json');
@@ -388,13 +388,13 @@ else {
       if (action === 'reset-windows') return resetWindowPositions();
       if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility };
       if (action === 'compatibility-set') return { accepted: true, ...diagnostics.setCompatibility(Boolean(value?.enabled)), restartRequired: true };
-      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode };
+      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: Boolean(desktopMode.enabled && compatibilityState.enabled) };
       if (action === 'desktop-mode-set') {
         const enabled = Boolean(value?.enabled);
         if (enabled) backupBeforeCanvasMigration(true);
         Object.assign(desktopMode, writeDesktopMode(app, enabled));
         diagnostics.record('desktop-mode-changed', { enabled });
-        return { accepted: true, ...desktopMode, restartRequired: true };
+        return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: Boolean(desktopMode.enabled && compatibilityState.enabled), restartRequired: true };
       }
       return { accepted: false, error: 'unsupported-action' };
     });
@@ -441,7 +441,7 @@ else {
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
-    if ((desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1') && process.platform === 'win32') {
+    if (shouldUseDesktopCanvas({ enabled: desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1', compatibilityEnabled: compatibilityState.enabled })) {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'),
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
         onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); }

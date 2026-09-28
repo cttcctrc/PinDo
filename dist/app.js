@@ -2119,7 +2119,11 @@
   function showDesktopModeStatus(value = {}) {
     desktopModeEnabled = Boolean(value.enabled);
     desktopModeButton.textContent = desktopModeEnabled ? "切回原窗口模式" : "启用画布模式";
-    desktopModeStatus.textContent = desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
+    desktopModeStatus.textContent = value.compatibilityFallback
+      ? "兼容模式已自动使用原窗口，关闭兼容模式后才会恢复画布"
+      : value.effectiveEnabled === false && desktopModeEnabled
+        ? "当前启动暂未启用画布"
+        : desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
   }
   desktopModeButton?.addEventListener("click", async event => {
     const button = event.currentTarget; button.disabled = true;
