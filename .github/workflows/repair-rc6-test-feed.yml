@@ -1,0 +1,31 @@
+name: Repair PinDo rc6 test update feed
+on:
+  push:
+    branches: [fix/test-channel-alias-rc6]
+permissions:
+  contents: write
+jobs:
+  alias:
+    if: github.repository == 'cttcctrc/PinDo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish rc6 compatibility alias for existing test clients
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: v1.1.0-beta.7.5-rc.6
+          ALIAS_TAG: v1.1.0-test.75.6
+          TARGET_SHA: b2e4f161813d8c21c6dbe782bbfcf00791391f24
+        run: |
+          set -euo pipefail
+          mkdir release-alias
+          gh release download "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-alias
+          test -f release-alias/test.yml
+          test -f release-alias/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.6-x64.exe
+          test -f release-alias/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.6-x64.exe.blockmap
+          if gh release view "$ALIAS_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$ALIAS_TAG" release-alias/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$ALIAS_TAG" release-alias/* --repo "$GITHUB_REPOSITORY" --target "$TARGET_SHA" --prerelease --title "PinDo 1.1.0-beta.7.5-rc.6 test-channel compatibility" --notes "Identical validated rc.6 candidate bytes, tagged for the existing test-channel updater."
+          fi
