@@ -37,6 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
+          TEST_ALIAS_TAG: v1.1.0-test.75.${{ github.run_number }}
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           $tag = "v$env:VERSION"
@@ -48,6 +49,7 @@ jobs:
           $assets = Get-ChildItem "release-candidate" -File | Where-Object { $_.Name -eq "test.yml" -or $_.Name -match "\.exe$" -or $_.Name -match "\.exe\.blockmap$" } | ForEach-Object { $_.FullName }
           if ($assets.Count -lt 3) { throw "Expected candidate installer, blockmap and test.yml." }
           gh release upload $tag $assets
+          gh release create $env:TEST_ALIAS_TAG @assets --target $env:VALIDATED_SHA --prerelease --title "PinDo $env:VERSION test-channel compatibility" --notes "Identical validated candidate bytes, tagged for the existing test-channel updater."
       - name: Preserve candidate and smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
