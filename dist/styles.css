@@ -406,9 +406,9 @@ button { border: 0; cursor: pointer; }
 }
 .note-title:focus { white-space: normal; overflow: visible; }
 .note-body { height: calc(100% - 92px); padding: 20px 22px; }
-.quick-editor { font-size: 18px; line-height: 1.75; }
+.quick-editor { font-size: var(--note-content-font-size, 18px); line-height: 1.65; }
 .quick-editor.ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, rgba(40,40,45,.09) 32px); }
-.todo-content input, .timeline-text { font-size: 17px; }
+.todo-content input, .timeline-text { font-size: var(--note-content-font-size, 17px); }
 .timeline-time { font-size:calc(13px * var(--ui-zoom,1)); width: 190px; }
 .todo-add { font-size:calc(16px * var(--ui-zoom,1)); height: 44px; }
 .timeline-add { font-size:calc(15px * var(--ui-zoom,1)); }
@@ -1423,6 +1423,41 @@ html[data-ui-size="large"] { --calendar-cell: 36px; --color-swatch: 22px; }
   width: 100%; min-width: 0; border-radius: 10px; font-size: var(--sys-sm);
 }
 
+/* P0 reminder queue: one actionable card, two previews, then a remainder count. */
+.dodo-message-count {
+  min-width: 32px; height: 32px; padding: 0 9px; display: grid; place-items: center;
+  border-radius: 999px; background: #f16055; color: #fff; font-size: var(--sys-sm); font-weight: 800;
+  box-shadow: 0 5px 13px rgba(205,70,59,.24);
+}
+.dodo-nudge:not(.message-center-expanded) .dodo-message-stack { overflow: visible; max-height: none; padding-bottom: 14px; gap: 0; }
+.dodo-nudge:not(.message-center-expanded) .dodo-message-card.is-primary { z-index: 3; animation: reminder-card-in 220ms cubic-bezier(.16,1,.3,1) both; }
+.dodo-nudge:not(.message-center-expanded) .dodo-message-card.is-preview {
+  position: relative; z-index: calc(3 - var(--stack-index)); min-height: 58px; max-height: 58px;
+  margin-top: -7px; padding: 10px 58px 10px 12px; overflow: hidden;
+  background: rgba(250,251,254,.98); box-shadow: 0 8px 20px rgba(52,59,73,.09);
+  transform: translateY(2px) scale(.982);
+  transform-origin: top center; animation: reminder-preview-in 220ms cubic-bezier(.16,1,.3,1) both;
+}
+.dodo-nudge:not(.message-center-expanded) .dodo-message-card.is-preview:nth-child(3) { transform: translateY(4px) scale(.964); }
+.dodo-message-card.is-preview .dodo-message-meta { gap: 7px; }
+.dodo-message-card.is-preview .dodo-message-icon { width: 28px; height: 28px; flex-basis: 28px; }
+.dodo-message-card.is-preview .dodo-message-copy { margin-top: -4px; padding-left: 35px; }
+.dodo-message-card.is-preview .dodo-message-copy strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--sys-sm); }
+.dodo-message-open {
+  position: absolute; right: 12px; top: 14px; min-width: 40px; height: 29px; padding: 0 8px;
+  border-radius: 9px; background: #eef1f7; color: #61708f; font-size: var(--sys-xs); font-weight: 700;
+}
+.dodo-message-more {
+  position: relative; z-index: 0; width: calc(100% - 40px); min-height: 31px; margin: -5px auto 0;
+  border-radius: 0 0 12px 12px; background: rgba(230,234,242,.92); color: #667087;
+  font-size: var(--sys-xs); font-weight: 750; box-shadow: 0 7px 15px rgba(52,59,73,.07);
+}
+.dodo-nudge.message-center-expanded .dodo-message-stack {
+  max-height: min(430px, calc(100vh - 170px)); overflow-y: auto; overscroll-behavior: contain; gap: 8px;
+}
+.dodo-nudge.message-center-expanded .dodo-message-card { margin-top: 0; animation-delay: calc(var(--stack-index) * 24ms); }
+@keyframes reminder-preview-in { from { opacity: 0; transform: translateY(-9px) scale(.96); } to { opacity: 1; } }
+
 /* Calendar alignment and time-wheel close affordance. */
 .deadline-picker-popover .calendar-panel > header > button {
   justify-content: center !important; align-content: center !important;
@@ -1653,7 +1688,7 @@ body.note-window-mode .note-header { padding-top: 28px; }
 .note .note-kind-mark svg { width: calc(30px * var(--ui-zoom)) !important; height: calc(30px * var(--ui-zoom)) !important; }
 body.note-window-mode .text-toolbar { max-width: calc(100vw - 16px); flex-wrap: wrap; z-index: 25000; }
 body.note-window-mode .text-toolbar select:first-child { width: 110px; }
-.todo-text, .timeline-text[role="textbox"] { min-width: 0; width: 100%; min-height: 1.65em; font-size: 20px; line-height: 1.65; color: inherit; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+.todo-text, .timeline-text[role="textbox"] { min-width: 0; width: 100%; min-height: 1.65em; font-size: var(--note-content-font-size, 17px); line-height: 1.65; color: inherit; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
 .todo-text:empty::before, .timeline-text[role="textbox"]:empty::before { content: attr(data-placeholder); color: #92949a; pointer-events: none; }
 .todo-text[contenteditable="false"], .timeline-text[contenteditable="false"] { cursor: move; }
 .todo-text[contenteditable="true"], .timeline-text[contenteditable="true"] { cursor: text; user-select: text; }
@@ -1678,7 +1713,8 @@ body.note-window-mode .capture-preview img { max-height: calc(100vh - 110px); ob
 .note:hover .note-controls,.note.focused .note-controls{opacity:1;pointer-events:auto;visibility:visible}
 .note-header button{cursor:pointer!important}
 .note-kind-mark{min-width:calc(40px * var(--ui-zoom))!important}
-.quick-editor,.todo-text,.timeline-text[role="textbox"],.note-title{zoom:var(--ui-zoom)}
+/* User-authored font sizes are exact CSS pixels and never inherit system UI scaling. */
+.quick-editor,.todo-text,.timeline-text[role="textbox"],.note-title{zoom:1}
 .mini-popover{overscroll-behavior:contain;overflow-x:hidden;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px)}
 .calendar-day:disabled,.ios-wheel-column button:disabled{opacity:.25;cursor:not-allowed}
 .ios-wheel-values .unavailable{opacity:.2}
