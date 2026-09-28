@@ -611,6 +611,7 @@
     const el = document.createElement("article");
     note.locked ??= false;
     note.pinEnabled ??= true;
+    note.fontSize = clamp(Number(note.fontSize) || (note.type === "quick" ? 18 : 17), 10, 56);
     const parentLink = attachmentByChild(note.id), rootNote = attachmentRoot(note.id) || note;
     const effectiveLocked = Boolean(rootNote.pinEnabled && rootNote.locked);
     el.className = `note ${effectiveLocked ? "is-locked" : ""} ${parentLink ? "is-attached-child" : ""} ${focusedNoteId === note.id ? "focused" : ""} ${organizerEditNotes.has(note.id) ? "organizer-sorting" : ""}`; el.dataset.id = note.id; el.dataset.mode = note.mode; el.dataset.type = note.type; el.dataset.organizerSize = note.organizerItemSize || "medium"; el.dataset.organizerView = note.organizerView || "grid";
@@ -619,7 +620,7 @@
     const typeTool = note.type === "quick" ? `<button data-action="capture" class="type-tool-button" title="截图识别文字">${icons.scan}</button>` : note.type === "todo" || note.type === "timeline" ? `<button data-action="sort-time" class="type-tool-button" title="按时间从早到晚排序">${icons.sort}</button>` : "";
     const templateFab = note.type !== "quick" && note.type !== "organizer" && !note.userEdited ? `<button class="template-fab" data-action="template-switch" title="切换模板">${icons.swap}</button>` : "";
     const organizer = note.type === "organizer";
-    el.style.cssText += `left:${noteWindowId ? 0 : note.x}px;top:${noteWindowId ? 0 : note.y}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
+    el.style.cssText += `left:${noteWindowId ? 0 : note.x}px;top:${noteWindowId ? 0 : note.y}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
     el.innerHTML = `
       <header class="note-header">
         <div class="note-title-wrap">${organizer ? `<span class="organizer-title-icon">${icons.folder}</span>` : `<button class="note-kind-mark note-icon" title="更换标题图标">${noteIcon(note.icon)}</button>`}<div class="note-title" contenteditable="false" spellcheck="false" aria-label="便签标题" data-placeholder="双击输入标题" title="双击编辑 · 最多30个字符">${note.titleHtml || escapeHtml(note.title || "")}</div></div>
@@ -794,7 +795,7 @@
 
   function renderQuick(body, note) {
     const initialContent = note.contentHtml || escapeHtml(note.content || "").replaceAll("\n", "<br>");
-    body.innerHTML = `<div class="quick-editor ${note.ruled ? "ruled" : ""} ${fontClass(note.font)}" contenteditable="false" spellcheck="false" data-placeholder="双击后开始记录……" style="font-size:${note.fontSize}px;font-weight:${note.fontWeight};color:${note.fontColor}">${initialContent}</div>`;
+    body.innerHTML = `<div class="quick-editor ${note.ruled ? "ruled" : ""} ${fontClass(note.font)}" contenteditable="false" spellcheck="false" data-placeholder="双击后开始记录……" style="font-weight:${note.fontWeight};color:${note.fontColor}">${initialContent}</div>`;
     const editor = body.firstElementChild;
     requireDoubleClickToEdit(editor);
     editor.addEventListener("input", () => { note.content = editor.innerText; note.contentHtml = editor.innerHTML; scheduleSave(); });
@@ -944,7 +945,7 @@
         insert.addEventListener("click", () => insertTimelineEvent(note, index)); list.appendChild(insert);
       }
       const row = document.createElement("div"); row.className = `timeline-row ${item.done ? "done" : ""}`; row.dataset.eventId = item.id;
-      row.innerHTML = `<button class="timeline-node ${item.shape || "circle"} ${item.size || "medium"} ${item.done ? "done" : ""}" style="--node-color:${item.color}" title="设置节点样式"></button><div class="timeline-text ${fontClass(note.font)}" role="textbox" data-placeholder="双击修改内容" style="font-size:${note.fontSize}px;font-weight:${note.fontWeight};color:${item.done ? "" : note.fontColor}">${item.textHtml || escapeHtml(item.text)}</div><button class="timeline-date-control" title="选择日期和时间">${icons.calendar}<span>${escapeHtml(formatTimelineTime(item.time))}</span></button>`;
+      row.innerHTML = `<button class="timeline-node ${item.shape || "circle"} ${item.size || "medium"} ${item.done ? "done" : ""}" style="--node-color:${item.color}" title="设置节点样式"></button><div class="timeline-text ${fontClass(note.font)}" role="textbox" data-placeholder="双击修改内容" style="font-weight:${note.fontWeight};color:${item.done ? "" : note.fontColor}">${item.textHtml || escapeHtml(item.text)}</div><button class="timeline-date-control" title="选择日期和时间">${icons.calendar}<span>${escapeHtml(formatTimelineTime(item.time))}</span></button>`;
       requireDoubleClickToEdit(row.querySelector(".timeline-text"));
       row.querySelector(".timeline-text").addEventListener("input", e => { item.text = e.currentTarget.innerText; item.textHtml = e.currentTarget.innerHTML; if (item.text.trim()) { note.userEdited = true; noteLayer.querySelector(`[data-id="${note.id}"] .template-fab`)?.remove(); } scheduleSave(); });
       row.querySelector(".timeline-date-control").addEventListener("click", e => {

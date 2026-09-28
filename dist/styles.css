@@ -406,9 +406,9 @@ button { border: 0; cursor: pointer; }
 }
 .note-title:focus { white-space: normal; overflow: visible; }
 .note-body { height: calc(100% - 92px); padding: 20px 22px; }
-.quick-editor { font-size: 18px; line-height: 1.75; }
+.quick-editor { font-size: var(--note-content-font-size, 18px); line-height: 1.65; }
 .quick-editor.ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 31px, rgba(40,40,45,.09) 32px); }
-.todo-content input, .timeline-text { font-size: 17px; }
+.todo-content input, .timeline-text { font-size: var(--note-content-font-size, 17px); }
 .timeline-time { font-size:calc(13px * var(--ui-zoom,1)); width: 190px; }
 .todo-add { font-size:calc(16px * var(--ui-zoom,1)); height: 44px; }
 .timeline-add { font-size:calc(15px * var(--ui-zoom,1)); }
@@ -1653,7 +1653,7 @@ body.note-window-mode .note-header { padding-top: 28px; }
 .note .note-kind-mark svg { width: calc(30px * var(--ui-zoom)) !important; height: calc(30px * var(--ui-zoom)) !important; }
 body.note-window-mode .text-toolbar { max-width: calc(100vw - 16px); flex-wrap: wrap; z-index: 25000; }
 body.note-window-mode .text-toolbar select:first-child { width: 110px; }
-.todo-text, .timeline-text[role="textbox"] { min-width: 0; width: 100%; min-height: 1.65em; font-size: 20px; line-height: 1.65; color: inherit; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+.todo-text, .timeline-text[role="textbox"] { min-width: 0; width: 100%; min-height: 1.65em; font-size: var(--note-content-font-size, 17px); line-height: 1.65; color: inherit; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
 .todo-text:empty::before, .timeline-text[role="textbox"]:empty::before { content: attr(data-placeholder); color: #92949a; pointer-events: none; }
 .todo-text[contenteditable="false"], .timeline-text[contenteditable="false"] { cursor: move; }
 .todo-text[contenteditable="true"], .timeline-text[contenteditable="true"] { cursor: text; user-select: text; }
@@ -1678,7 +1678,8 @@ body.note-window-mode .capture-preview img { max-height: calc(100vh - 110px); ob
 .note:hover .note-controls,.note.focused .note-controls{opacity:1;pointer-events:auto;visibility:visible}
 .note-header button{cursor:pointer!important}
 .note-kind-mark{min-width:calc(40px * var(--ui-zoom))!important}
-.quick-editor,.todo-text,.timeline-text[role="textbox"],.note-title{zoom:var(--ui-zoom)}
+/* User-authored font sizes are exact CSS pixels and never inherit system UI scaling. */
+.quick-editor,.todo-text,.timeline-text[role="textbox"],.note-title{zoom:1}
 .mini-popover{overscroll-behavior:contain;overflow-x:hidden;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px)}
 .calendar-day:disabled,.ios-wheel-column button:disabled{opacity:.25;cursor:not-allowed}
 .ios-wheel-values .unavailable{opacity:.2}
