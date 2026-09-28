@@ -18,4 +18,8 @@ function writeDesktopMode(app, enabled) {
   return next;
 }
 
-module.exports = { desktopModePath, readDesktopMode, writeDesktopMode };
+function shouldUseDesktopCanvas({ enabled, compatibilityEnabled, platform = process.platform }) {
+  return platform === 'win32' && Boolean(enabled) && !Boolean(compatibilityEnabled);
+}
+
+module.exports = { desktopModePath, readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas };
