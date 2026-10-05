@@ -1,5 +1,6 @@
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
 const { createCanvasHitTest } = require('./canvas-hit-test.cjs');
+const { virtualDesktopBounds } = require('./canvas-geometry.cjs');
 
 /** Owns the single, desktop-hosted surface. Never owns or serializes note data. */
 class DesktopCanvasManager {
@@ -9,12 +10,15 @@ class DesktopCanvasManager {
     this.hitTest = null;
     this.timer = null;
     this.active = false;
+    this.editing = false;
+    this.fallbackReason = null;
   }
 
   async open() {
     if (this.window && !this.window.isDestroyed()) return;
+    const canvasBounds = virtualDesktopBounds(this.screen.getAllDisplays());
     const window = new this.BrowserWindow({
-      ...this.screen.getPrimaryDisplay().bounds,
+      ...canvasBounds,
       frame: false, transparent: true, backgroundColor: '#00000000',
       resizable: false, hasShadow: false, skipTaskbar: true, focusable: false, show: false,
       webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
@@ -22,28 +26,28 @@ class DesktopCanvasManager {
     this.window = window;
     this.hitTest = createCanvasHitTest(window, this.screen);
     this.hitTest.update([]);
-    this.timer = setInterval(() => { if (window.isVisible()) this.hitTest.refresh(); }, 16);
-    this.timer.unref?.();
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event, url) => {
       if (url.split('?')[0] !== require('node:url').pathToFileURL(this.indexPath).href) event.preventDefault();
     });
     window.webContents.on('did-start-loading', () => this.hitTest?.clear());
-    window.on('blur', () => { if (!window.isDestroyed()) window.setFocusable(false); });
+    window.webContents.on('render-process-gone', (_event, detail) => this.fail(new Error(`Canvas renderer ${detail?.reason || 'failed'} (${detail?.exitCode ?? 'unknown'})`)));
+    window.on('blur', () => this.endEdit('window-blur'));
+    window.on('hide', () => this.resetInteraction('window-hidden'));
     window.on('closed', () => { clearInterval(this.timer); if (this.window === window) { this.window = null; this.active = false; } });
     try {
-      await window.loadFile(this.indexPath, { query: { canvasWindow: '1' } });
+      await window.loadFile(this.indexPath, { query: { canvasWindow: '1', canvasOriginX: String(canvasBounds.x), canvasOriginY: String(canvasBounds.y) } });
       const result = await this.desktopHost(window);
       if (window.isDestroyed()) return;
       if (!result.attached) throw new Error(result.reason || 'Explorer did not accept the canvas');
       window.showInactive();
       this.active = true;
+      this.timer = setInterval(() => { if (this.active && window.isVisible() && !this.editing) this.hitTest?.refresh(); }, 32);
+      this.timer.unref?.();
       window.webContents.send('pindo:canvas-refresh-regions');
       this.onReady();
     } catch (error) {
-      this.active = false;
-      this.onError(error);
-      if (!window.isDestroyed()) window.destroy();
+      this.fail(error);
     }
   }
 
@@ -53,16 +57,51 @@ class DesktopCanvasManager {
     if (!this.active || !this.window?.isVisible()) return false;
     this.window.setFocusable(true);
     this.window.focus();
+    this.editing = true;
+    this.hitTest?.setDragging(true);
     return true;
+  }
+  endEdit(_reason = 'renderer') {
+    if (!this.window || this.window.isDestroyed()) return false;
+    this.editing = false;
+    this.hitTest?.setDragging(false);
+    this.window.setFocusable(false);
+    return true;
+  }
+  resetInteraction(reason = 'reset') {
+    this.editing = false;
+    this.hitTest?.setDragging(false);
+    if (this.window && !this.window.isDestroyed()) this.window.setFocusable(false);
+    return reason;
   }
   resize() {
     if (!this.active || this.window?.isDestroyed()) return;
-    this.window.setBounds(this.screen.getPrimaryDisplay().bounds);
+    const bounds = virtualDesktopBounds(this.screen.getAllDisplays());
+    this.resetInteraction('display-change');
+    this.window.setBounds(bounds);
+    this.window.webContents.send('pindo:canvas-geometry', { bounds, origin: { x: bounds.x, y: bounds.y }, displays: this.screen.getAllDisplays().map(display => ({ bounds: display.bounds, scaleFactor: display.scaleFactor })) });
     this.window.webContents.send('pindo:canvas-refresh-regions');
+  }
+  fail(error) {
+    if (!this.window && !this.active) return;
+    this.fallbackReason = String(error?.message || error || 'canvas-failure');
+    this.active = false;
+    clearInterval(this.timer);
+    this.timer = null;
+    this.resetInteraction('fallback');
+    const failedWindow = this.window;
+    this.window = null;
+    this.onError(error instanceof Error ? error : new Error(this.fallbackReason));
+    if (failedWindow && !failedWindow.isDestroyed()) failedWindow.destroy();
+  }
+  interactionState() {
+    return { active: this.active, editing: this.editing, dragging: Boolean(this.hitTest?.state.dragging), ignored: this.hitTest?.state.ignored, regionCount: this.hitTest?.state.regionCount || 0, fallbackReason: this.fallbackReason };
   }
   close() {
     this.active = false;
     clearInterval(this.timer);
+    this.timer = null;
+    this.resetInteraction('close');
     this.hitTest?.clear();
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
   }

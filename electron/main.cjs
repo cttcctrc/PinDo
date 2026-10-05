@@ -351,7 +351,7 @@ else {
       setImmediate(broadcastState);
       event.returnValue = { accepted: true, revision: noteStore.revision };
     });
-    diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), compatibility: compatibilityState });
+    diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), getCanvasState: () => desktopCanvas?.interactionState?.() || { active: false }, compatibility: compatibilityState });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
     ipcMain.handle('pindo:data-action', async (event, action, value) => {
@@ -449,6 +449,7 @@ else {
       ipcMain.on('pindo:canvas-regions', (event, rectangles) => { if (trustedCanvasSender(event)) desktopCanvas.regions(rectangles); });
       ipcMain.on('pindo:canvas-gesture', (event, active) => { if (trustedCanvasSender(event)) desktopCanvas.gesture(Boolean(active)); });
       ipcMain.handle('pindo:canvas-focus-edit', event => trustedCanvasSender(event) && desktopCanvas.focusEdit());
+      ipcMain.handle('pindo:canvas-end-edit', (event, reason) => trustedCanvasSender(event) && desktopCanvas.endEdit(reason));
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
@@ -469,7 +470,8 @@ else {
     smokeTrace('note windows synchronized');
     createTray();
     screen.on('display-metrics-changed', (_event, display, metrics) => { diagnostics.record('display-metrics-changed', { displayId: display.id, metrics }); desktopCanvas?.resize(); broadcastState(); });
-    screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); broadcastState(); });
+    screen.on('display-removed', (_event, display) => { diagnostics.record('display-removed', { displayId: display.id }); desktopCanvas?.resize(); broadcastState(); });
+    screen.on('display-added', (_event, display) => { diagnostics.record('display-added', { displayId: display.id }); desktopCanvas?.resize(); broadcastState(); });
 
     updaterAvailable = !canvasCandidate && fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'));
     // PinDo is currently distributed as beta builds. Explicitly allow a newer

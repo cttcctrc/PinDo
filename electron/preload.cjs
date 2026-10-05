@@ -5,11 +5,18 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   setCanvasRegions: regions => ipcRenderer.send('pindo:canvas-regions', regions),
   setCanvasGesture: active => ipcRenderer.send('pindo:canvas-gesture', Boolean(active)),
   focusCanvasEditor: () => ipcRenderer.invoke('pindo:canvas-focus-edit'),
+  endCanvasEdit: reason => ipcRenderer.invoke('pindo:canvas-end-edit', String(reason || 'renderer')),
   onCanvasRefresh: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = () => callback();
     ipcRenderer.on('pindo:canvas-refresh-regions', listener);
     return () => ipcRenderer.removeListener('pindo:canvas-refresh-regions', listener);
+  },
+  onCanvasGeometry: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('pindo:canvas-geometry', listener);
+    return () => ipcRenderer.removeListener('pindo:canvas-geometry', listener);
   },
   readState: () => ipcRenderer.sendSync('pindo:read-state'),
   readRevision: () => ipcRenderer.sendSync('pindo:read-revision'),

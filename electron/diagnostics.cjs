@@ -28,8 +28,8 @@ function prepareCompatibility(app) {
 }
 
 class Diagnostics {
-  constructor({ app, screen, getStore, getWindows, compatibility }) {
-    this.app = app; this.screen = screen; this.getStore = getStore; this.getWindows = getWindows; this.compatibility = compatibility;
+  constructor({ app, screen, getStore, getWindows, getCanvasState = () => null, compatibility }) {
+    this.app = app; this.screen = screen; this.getStore = getStore; this.getWindows = getWindows; this.getCanvasState = getCanvasState; this.compatibility = compatibility;
     this.directory = path.join(app.getPath('userData'), 'diagnostics');
     fs.mkdirSync(this.directory, { recursive: true }); this.cleanup();
     process.on('uncaughtExceptionMonitor', error => this.record('uncaught-exception', { message: error.message, stack: error.stack }));
@@ -57,7 +57,8 @@ class Diagnostics {
     const logs = [];
     for (const name of fs.readdirSync(this.directory).sort()) { try { logs.push(...fs.readFileSync(path.join(this.directory, name), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))); } catch {} }
     const windows = this.getWindows().filter(win => !win.isDestroyed()).map(win => ({ role: win.pindoDiagnosticRole || 'auxiliary', visible: win.isVisible?.(), focused: win.isFocused?.(), minimized: win.isMinimized?.(), alwaysOnTop: win.isAlwaysOnTop?.(), bounds: win.getBounds?.(), parked: Boolean(win.pindoParked), desktopPromoted: Boolean(win.pindoPromoted) }));
-    return redact({ generatedAt: new Date().toISOString(), privacy: 'No note text, email address, file path, screenshot or pet asset is included.', app: { name: this.app.getName(), version: this.app.getVersion(), packaged: this.app.isPackaged }, system: { platform: process.platform, arch: process.arch, osRelease: os.release(), osVersion: os.version(), electron: process.versions.electron, chrome: process.versions.chrome, locale: this.app.getLocale(), cpuCount: os.cpus().length, memoryGB: Math.round(os.totalmem() / 1073741824) }, compatibility: { ...this.compatibility, strategy: this.compatibility.enabled ? 'reduced-visual-effects' : 'standard' }, displays, gpu, windowCount: windows.length, windows, notes, logs });
+    const canvas = this.getCanvasState?.() || { active: false };
+    return redact({ generatedAt: new Date().toISOString(), privacy: 'No note text, email address, file path, screenshot or pet asset is included.', app: { name: this.app.getName(), version: this.app.getVersion(), packaged: this.app.isPackaged }, system: { platform: process.platform, arch: process.arch, osRelease: os.release(), osVersion: os.version(), electron: process.versions.electron, chrome: process.versions.chrome, locale: this.app.getLocale(), cpuCount: os.cpus().length, memoryGB: Math.round(os.totalmem() / 1073741824) }, compatibility: { ...this.compatibility, strategy: this.compatibility.enabled ? 'reduced-visual-effects' : 'standard' }, displays, gpu, canvas, windowCount: windows.length, windows, notes, logs });
   }
   setCompatibility(enabled) {
     this.compatibility = { ...this.compatibility, enabled: Boolean(enabled), autoEnabled: false, uncleanStarts: 0, updatedAt: Date.now() };
