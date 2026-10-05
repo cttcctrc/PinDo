@@ -6,6 +6,10 @@
   const noteWindowId = query.get("noteWindow");
   const controlWindow = query.get("controlWindow") === "1";
   const canvasWindow = query.get("canvasWindow") === "1";
+  let canvasOriginX = Number(query.get("canvasOriginX")) || 0;
+  let canvasOriginY = Number(query.get("canvasOriginY")) || 0;
+  const canvasLocalX = screenX => canvasWindow ? screenX - canvasOriginX : screenX;
+  const canvasLocalY = screenY => canvasWindow ? screenY - canvasOriginY : screenY;
   const compatibilityMode = query.get("compatibility") === "1";
   if (noteWindowId) document.body.classList.add("note-window-mode");
   if (controlWindow) document.body.classList.add("control-window-mode");
@@ -491,7 +495,7 @@
       const child = noteById(link.childId); if (!child) return;
       child.x = parent.x; child.y = parent.y + parent.h; child.w = parent.w; child.mode = parent.mode;
       const childEl = noteLayer.querySelector(`[data-id="${child.id}"]`);
-      if (childEl) { childEl.style.left = `${child.x}px`; childEl.style.top = `${child.y}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
+      if (childEl) { childEl.style.left = `${canvasLocalX(child.x)}px`; childEl.style.top = `${canvasLocalY(child.y)}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
       syncAttachedStack(child.id);
     });
   }
@@ -621,7 +625,7 @@
     const typeTool = note.type === "quick" ? `<button data-action="capture" class="type-tool-button" title="截图识别文字">${icons.scan}</button>` : note.type === "todo" || note.type === "timeline" ? `<button data-action="sort-time" class="type-tool-button" title="按时间从早到晚排序">${icons.sort}</button>` : "";
     const templateFab = note.type !== "quick" && note.type !== "organizer" && !note.userEdited ? `<button class="template-fab" data-action="template-switch" title="切换模板">${icons.swap}</button>` : "";
     const organizer = note.type === "organizer";
-    el.style.cssText += `left:${noteWindowId ? 0 : note.x}px;top:${noteWindowId ? 0 : note.y}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
+    el.style.cssText += `left:${noteWindowId ? 0 : canvasLocalX(note.x)}px;top:${noteWindowId ? 0 : canvasLocalY(note.y)}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
     el.innerHTML = `
       <header class="note-header">
         <div class="note-title-wrap">${organizer ? `<span class="organizer-title-icon">${icons.folder}</span>` : `<button class="note-kind-mark note-icon" title="更换标题图标">${noteIcon(note.icon)}</button>`}<div class="note-title" contenteditable="false" spellcheck="false" aria-label="便签标题" data-placeholder="双击输入标题" title="双击编辑 · 最多30个字符">${note.titleHtml || escapeHtml(note.title || "")}</div></div>
@@ -1227,8 +1231,9 @@
         const maxX = Math.max(...movingNotes.map(item => origins.get(item.id).x + item.w));
         const maxY = Math.max(...movingNotes.map(item => origins.get(item.id).y + item.h));
         if (!noteWindowId) {
-          dx = clamp(dx, -minX, desktop.clientWidth - maxX);
-          dy = clamp(dy, 34 - minY, desktop.clientHeight - maxY);
+          const minCanvasX = canvasWindow ? canvasOriginX : 0, minCanvasY = canvasWindow ? canvasOriginY : 0;
+          dx = clamp(dx, minCanvasX - minX, minCanvasX + desktop.clientWidth - maxX);
+          dy = clamp(dy, minCanvasY + 34 - minY, minCanvasY + desktop.clientHeight - maxY);
         }
         const proposedX = startLeft + dx, proposedY = startTop + dy;
         pendingSnap = findVerticalSnap(note, proposedX, proposedY, new Set(movingIds));
@@ -1240,7 +1245,7 @@
         movingNotes.forEach(item => {
           const origin = origins.get(item.id); item.x = origin.x + dx; item.y = origin.y + dy;
           const itemEl = noteLayer.querySelector(`[data-id="${item.id}"]`);
-          if (itemEl) { itemEl.style.left = `${item.x}px`; itemEl.style.top = `${item.y}px`; itemEl.style.zIndex = 10000 + item.z; }
+          if (itemEl) { itemEl.style.left = `${canvasLocalX(item.x)}px`; itemEl.style.top = `${canvasLocalY(item.y)}px`; itemEl.style.zIndex = 10000 + item.z; }
         });
         if (pendingSnap && !noteWindowId) showSnapFeedback(pendingSnap);
         if (noteWindowId) window.pindoNote?.setBounds({ x: note.x, y: note.y, width: note.w, height: note.h });
@@ -1285,7 +1290,7 @@
     noteLayer.querySelector(`[data-id="${snap.target.id}"]`)?.classList.add("snap-target");
     const parent = noteById(snap.parentId), guide = document.createElement("div"); guide.className = "note-snap-guide horizontal";
     const inset = Math.max(24, Math.min(48, (parent?.w || snap.target.w) * .1));
-    guide.style.cssText = `left:${(parent?.x ?? snap.x) + inset}px;top:${snap.seamY - 1}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
+    guide.style.cssText = `left:${canvasLocalX((parent?.x ?? snap.x) + inset)}px;top:${canvasLocalY(snap.seamY - 1)}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
     noteLayer.appendChild(guide);
   }
 
@@ -1307,9 +1312,11 @@
       event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-resizing"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
       const startX = event.clientX, startY = event.clientY, startW = note.w, startH = note.h;
       const move = e => {
-        let nextW = clamp(startW + e.clientX - startX, 280, desktop.clientWidth - note.x);
+        const canvasRight = (canvasWindow ? canvasOriginX : 0) + desktop.clientWidth;
+        const canvasBottom = (canvasWindow ? canvasOriginY : 0) + desktop.clientHeight;
+        let nextW = clamp(startW + e.clientX - startX, 280, canvasRight - note.x);
         const attachedIds = new Set(attachedTreeIds(note.id)), stackCount = attachedIds.size;
-        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((desktop.clientHeight - note.y) / stackCount)));
+        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((canvasBottom - note.y) / stackCount)));
         const visibleOthers = state.notes.filter(item => !attachedIds.has(item.id) && item.mode !== "bookmark");
         const widthMatch = visibleOthers.map(item => ({ item, gap: Math.abs(item.w - nextW) })).filter(match => match.gap <= 12).sort((a, b) => a.gap - b.gap)[0];
         clearSizeMatchFeedback();
@@ -2216,8 +2223,9 @@
       state.notes.filter(note => !attachmentByChild(note.id)).forEach(note => {
         syncAttachedStack(note.id);
         const stack = attachedTreeIds(note.id).map(noteById).filter(Boolean), stackHeight = stack.reduce((sum, item) => sum + item.h, 0);
-        note.x = clamp(note.x, 0, Math.max(0, desktop.clientWidth - note.w));
-        note.y = clamp(note.y, 34, Math.max(34, desktop.clientHeight - stackHeight));
+        const minX = canvasWindow ? canvasOriginX : 0, minY = canvasWindow ? canvasOriginY : 0;
+        note.x = clamp(note.x, minX, Math.max(minX, minX + desktop.clientWidth - note.w));
+        note.y = clamp(note.y, minY + 34, Math.max(minY + 34, minY + desktop.clientHeight - stackHeight));
         syncAttachedStack(note.id);
       });
       positionAssistant(); render();
@@ -2293,6 +2301,12 @@
 
   if (canvasWindow && window.pindoDesktop?.setCanvasRegions) {
     let scheduled = 0, previous = "";
+    let canvasGestureActive = false;
+    const resetCanvasInteraction = reason => {
+      if (canvasGestureActive) window.pindoDesktop.setCanvasGesture(false);
+      canvasGestureActive = false;
+      void window.pindoDesktop.endCanvasEdit?.(reason);
+    };
     const publish = () => {
       scheduled = 0;
       const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
@@ -2306,13 +2320,25 @@
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
     window.addEventListener('resize', schedule);
     window.pindoDesktop.onCanvasRefresh(schedule);
+    window.pindoDesktop.onCanvasGeometry?.(geometry => {
+      if (Number.isFinite(geometry?.origin?.x)) canvasOriginX = geometry.origin.x;
+      if (Number.isFinite(geometry?.origin?.y)) canvasOriginY = geometry.origin.y;
+      render(); schedule();
+    });
     document.addEventListener('pointerdown', event => {
       const editable = event.target.closest('[contenteditable="true"], input:not([readonly]), textarea');
       if (editable) void window.pindoDesktop.focusCanvasEditor().then(ok => { if (ok && editable.isConnected) editable.focus(); });
-      if (event.target.closest('.note-header, [data-resize-edge]')) window.pindoDesktop.setCanvasGesture(true);
+      if (event.target.closest('.note-header, [data-resize-edge]')) { canvasGestureActive = true; window.pindoDesktop.setCanvasGesture(true); }
     }, true);
-    document.addEventListener('pointerup', () => window.pindoDesktop.setCanvasGesture(false), true);
-    document.addEventListener('pointercancel', () => window.pindoDesktop.setCanvasGesture(false), true);
+    document.addEventListener('focusout', () => queueMicrotask(() => {
+      if (!document.activeElement?.matches?.('[contenteditable="true"], input:not([readonly]), textarea')) void window.pindoDesktop.endCanvasEdit?.('focusout');
+    }), true);
+    document.addEventListener('pointerup', () => { canvasGestureActive = false; window.pindoDesktop.setCanvasGesture(false); }, true);
+    document.addEventListener('pointercancel', () => resetCanvasInteraction('pointercancel'), true);
+    document.addEventListener('lostpointercapture', () => resetCanvasInteraction('lostpointercapture'), true);
+    window.addEventListener('blur', () => resetCanvasInteraction('renderer-blur'));
+    window.addEventListener('pagehide', () => resetCanvasInteraction('pagehide'));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetCanvasInteraction('visibilitychange'); });
     schedule();
   }
 
