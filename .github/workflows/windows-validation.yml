@@ -30,19 +30,26 @@ jobs:
       - name: Launch packaged app and capture native windows
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
       - name: Build installable PR test package
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1')
         shell: pwsh
         env:
           PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+      - name: Re-run packaged smoke test on candidate bytes
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1'
+        run: node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
       - name: Upload installable PR test package
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1')
         uses: actions/upload-artifact@v4
         with:
-          name: pindo-pr-${{ github.event.pull_request.number }}-installer
-          path: release-candidate/*.exe
+          name: pindo-test-candidate-${{ github.run_number }}
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
           if-no-files-found: error
           retention-days: 14
       - name: Upload validation evidence
@@ -53,3 +60,31 @@ jobs:
           path: release-validation/smoke/**
           if-no-files-found: warn
           retention-days: 14
+  publish-test:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1'
+    needs: windows-validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download exact validated candidate bytes
+        uses: actions/download-artifact@v4
+        with:
+          name: pindo-test-candidate-${{ github.run_number }}
+          path: candidate
+      - name: Publish Interaction Polish candidate to test channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
+          TEST_ALIAS_TAG: v1.1.0-test.75.${{ github.run_number }}
+          VALIDATED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -f candidate/test.yml
+          test "$(find candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
+          test "$(find candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
+          tag="v$VERSION"
+          assets=(candidate/test.yml candidate/*.exe candidate/*.exe.blockmap)
+          gh release create "$tag" "${assets[@]}" --repo "$REPOSITORY" --target "$VALIDATED_SHA" --prerelease --title "PinDo $VERSION Interaction Polish candidate" --notes "Canvas Foundation P0 plus Interaction Polish Pass V1. Automated Windows regression, packaged smoke and update-artifact checks passed. Available only on the PinDo test update channel. This Canvas candidate uses its isolated test profile and does not enable cloud sync."
+          gh release create "$TEST_ALIAS_TAG" "${assets[@]}" --repo "$REPOSITORY" --target "$VALIDATED_SHA" --prerelease --title "PinDo $VERSION test-channel compatibility" --notes "Identical validated candidate bytes, tagged for the existing test-channel updater."
