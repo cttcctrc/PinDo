@@ -6,11 +6,17 @@
   const noteWindowId = query.get("noteWindow");
   const controlWindow = query.get("controlWindow") === "1";
   const canvasWindow = query.get("canvasWindow") === "1";
+  let canvasOriginX = Number(query.get("canvasOriginX")) || 0;
+  let canvasOriginY = Number(query.get("canvasOriginY")) || 0;
+  const canvasLocalX = screenX => canvasWindow ? screenX - canvasOriginX : screenX;
+  const canvasLocalY = screenY => canvasWindow ? screenY - canvasOriginY : screenY;
   const compatibilityMode = query.get("compatibility") === "1";
   if (noteWindowId) document.body.classList.add("note-window-mode");
   if (controlWindow) document.body.classList.add("control-window-mode");
   if (canvasWindow) document.body.classList.add("canvas-window-mode");
   if (compatibilityMode) document.body.classList.add("compatibility-mode");
+  const MOTION = Object.freeze({ fast: 110, normal: 190, slow: 280 });
+  const SNAP_THRESHOLD = 22, DETACH_THRESHOLD = 34;
   const COLORS = ["#fff0dc", "#dfe8ff", "#f0ddff", "#dff1e7", "#ffe4da", "#e8eef8"];
   const PIN_COLORS = ["#ff7044", "#467df4", "#8356e8", "#4fa674", "#f05f3b", "#386ee8"];
   const NODE_COLORS = ["#ef725f", "#eeaa45", "#6ca97d", "#5795d6", "#8d72be", "#565b64"];
@@ -77,6 +83,8 @@
   const dataSettingsStatus = document.querySelector("#dataSettingsStatus");
   let zCounter = 20;
   let toastTimer;
+  const toastQueue = [];
+  let toastActive = false;
   let rendererSaveTimer = 0;
   let activeTextRange = null;
   let activeEditor = null;
@@ -87,6 +95,8 @@
   let focusedNoteId = null;
   let pinnedCaptureData = null;
   let pendingNoteEntrance = null;
+  const noteTransitionIntents = new Map();
+  let activeSnapFeedbackKey = null;
   let dodoIdleTimer = 0;
   let lastReminderSignature = "";
 
@@ -491,13 +501,34 @@
       const child = noteById(link.childId); if (!child) return;
       child.x = parent.x; child.y = parent.y + parent.h; child.w = parent.w; child.mode = parent.mode;
       const childEl = noteLayer.querySelector(`[data-id="${child.id}"]`);
-      if (childEl) { childEl.style.left = `${child.x}px`; childEl.style.top = `${child.y}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
+      if (childEl) { childEl.style.left = `${canvasLocalX(child.x)}px`; childEl.style.top = `${canvasLocalY(child.y)}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
       syncAttachedStack(child.id);
     });
   }
   function showToast(message) {
-    toast.textContent = message; toast.classList.add("show"); clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 1700);
+    const value = String(message || "").trim();
+    if (!value || toastQueue.at(-1) === value || (toastActive && toast.textContent === value)) return;
+    toastQueue.push(value);
+    if (toastQueue.length > 4) toastQueue.splice(0, toastQueue.length - 4);
+    pumpToastQueue();
+  }
+
+  function pumpToastQueue() {
+    if (toastActive || !toastQueue.length) return;
+    toastActive = true;
+    toast.textContent = toastQueue.shift();
+    toast.classList.remove("leaving");
+    requestAnimationFrame(() => toast.classList.add("show"));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.add("leaving");
+      toast.classList.remove("show");
+      setTimeout(() => {
+        toast.classList.remove("leaving");
+        toastActive = false;
+        pumpToastQueue();
+      }, MOTION.normal);
+    }, 1700);
   }
 
   function showNearTip(anchor, message) {
@@ -512,8 +543,7 @@
   }
 
   function render(persist = true) {
-    textToolbar.hidden = true;
-    activeTextRange = activeEditor = activeNote = null;
+    clearPersistentSelection();
     state.attachments = state.attachments.filter(link => noteById(link.parentId) && noteById(link.childId));
     state.notes.filter(note => note.mode !== "bookmark" && !attachmentByChild(note.id)).forEach(note => syncAttachedStack(note.id));
     noteLayer.replaceChildren(); bookmarkDock.replaceChildren();
@@ -548,10 +578,11 @@
     const title = note.title?.trim() || "";
     item.innerHTML = `<button class="bookmark-icon note-icon" title="更换图标">${noteIcon(note.icon)}</button><button class="bookmark-open" title="展开便签"><strong>${escapeHtml(shortTitle(title))}</strong></button>${bookmarkPreview(note)}`;
     item.querySelector(".bookmark-icon").addEventListener("click", e => { e.stopPropagation(); showNoteIconMenu(e.currentTarget, note); });
-    item.querySelector(".bookmark-open").addEventListener("click", () => {
-      note.mode = note.previousMode || "desktop";
-      if (note.restoreSize) { note.w = note.restoreSize.w; note.h = note.restoreSize.h; }
-      render(); showToast("便签已按原尺寸展开");
+    item.querySelector(".bookmark-open").addEventListener("click", () => transitionBookmarkToNote(note));
+    item.addEventListener("pointerdown", () => {
+      item.classList.add("is-selected");
+      window.addEventListener("pointerup", () => item.classList.remove("is-selected"), { once: true });
+      window.addEventListener("pointercancel", () => item.classList.remove("is-selected"), { once: true });
     });
     item.addEventListener("dragstart", event => {
       event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", note.id);
@@ -621,7 +652,7 @@
     const typeTool = note.type === "quick" ? `<button data-action="capture" class="type-tool-button" title="截图识别文字">${icons.scan}</button>` : note.type === "todo" || note.type === "timeline" ? `<button data-action="sort-time" class="type-tool-button" title="按时间从早到晚排序">${icons.sort}</button>` : "";
     const templateFab = note.type !== "quick" && note.type !== "organizer" && !note.userEdited ? `<button class="template-fab" data-action="template-switch" title="切换模板">${icons.swap}</button>` : "";
     const organizer = note.type === "organizer";
-    el.style.cssText += `left:${noteWindowId ? 0 : note.x}px;top:${noteWindowId ? 0 : note.y}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
+    el.style.cssText += `left:${noteWindowId ? 0 : canvasLocalX(note.x)}px;top:${noteWindowId ? 0 : canvasLocalY(note.y)}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
     el.innerHTML = `
       <header class="note-header">
         <div class="note-title-wrap">${organizer ? `<span class="organizer-title-icon">${icons.folder}</span>` : `<button class="note-kind-mark note-icon" title="更换标题图标">${noteIcon(note.icon)}</button>`}<div class="note-title" contenteditable="false" spellcheck="false" aria-label="便签标题" data-placeholder="双击输入标题" title="双击编辑 · 最多30个字符">${note.titleHtml || escapeHtml(note.title || "")}</div></div>
@@ -643,8 +674,14 @@
       el.style.setProperty("--spawn-y", `${origin.y - (desktopRect.top + note.y + note.h / 2)}px`);
       el.classList.add("note-spawn");
       el.addEventListener("animationend", () => el.classList.remove("note-spawn"), { once: true });
+      focusCreatedNoteImmediately(el, note);
       pendingNoteEntrance = null;
     }
+  }
+
+  function focusCreatedNoteImmediately(element, note) {
+    const editor = element.querySelector(note.type === "quick" ? ".quick-editor" : note.type === "todo" ? ".todo-add" : note.type === "timeline" ? ".timeline-add" : ".note-title");
+    requestAnimationFrame(() => editor?.focus?.({ preventScroll: true }));
   }
 
   function renderBody(el, note) {
@@ -854,12 +891,41 @@
     note.todos.push(todo); render();
   }
 
+  function createListPlaceholder(source) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "list-drop-placeholder";
+    placeholder.style.height = `${Math.max(28, source.getBoundingClientRect().height)}px`;
+    return placeholder;
+  }
+
+  function animateListReflow(container, mutation) {
+    if (!container) { mutation(); return; }
+    const before = new Map([...container.children].map(element => [element, element.getBoundingClientRect()]));
+    mutation();
+    [...container.children].forEach(element => {
+      const first = before.get(element), last = element.getBoundingClientRect();
+      if (!first || (!first.top && !first.left)) return;
+      const dx = first.left - last.left, dy = first.top - last.top;
+      if (!dx && !dy) return;
+      element.classList.add("list-reflow");
+      const animation = element.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: MOTION.normal, easing: "cubic-bezier(.2,.72,.2,1)" });
+      const cleanup = () => element.classList.remove("list-reflow");
+      animation.finished.then(cleanup, cleanup);
+    });
+  }
+
+  function placeListPlaceholder(placeholder, candidate, after) {
+    const container = candidate?.parentElement;
+    if (!container) return;
+    animateListReflow(container, () => container.insertBefore(placeholder, after ? candidate.nextSibling : candidate));
+  }
+
   function enableTodoReorder(row, note, todo) {
     row.addEventListener("pointerdown", event => {
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const startX = event.clientX, startY = event.clientY, rect = row.getBoundingClientRect();
       const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      let ghost = null, targetRow = null, targetList = null, insertAfter = false;
+      let ghost = null, placeholder = null, targetRow = null, targetList = null, insertAfter = false;
       // Capture only after a drag actually starts, preserving double-click targets.
       const clearTarget = () => {
         targetRow?.classList.remove("todo-drop-before", "todo-drop-after");
@@ -873,6 +939,7 @@
           ghost = row.cloneNode(true); ghost.className = `${row.className} todo-drag-ghost`;
           ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`;
           document.body.appendChild(ghost); row.classList.add("todo-drag-source");
+          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row.nextSibling);
         }
         ghost.style.left = `${pointer.clientX - offsetX}px`; ghost.style.top = `${pointer.clientY - offsetY}px`;
         clearTarget();
@@ -886,19 +953,21 @@
           const candidateRect = candidate.getBoundingClientRect();
           insertAfter = pointer.clientY > candidateRect.top + candidateRect.height / 2;
           candidate.classList.add(insertAfter ? "todo-drop-after" : "todo-drop-before");
+          placeListPlaceholder(placeholder, candidate, insertAfter);
           return;
         }
         targetList = hit?.closest(".todo-list,.quadrant-list");
         targetList?.classList.add("todo-drop-zone");
       };
-      const up = () => {
+      const up = event => {
         row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
         if (!ghost) return;
         const targetId = targetRow?.dataset.todo;
         const targetQuadrant = targetRow
           ? note.todos.find(item => item.id === targetId)?.quadrant || ""
           : targetList?.dataset.quadrantList || "";
-        clearTarget(); ghost.remove(); row.classList.remove("todo-drag-source");
+        clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("todo-drag-source");
+        if (event.type !== "pointerup") return;
         const from = note.todos.findIndex(item => item.id === todo.id);
         if (from < 0) return;
         const [moving] = note.todos.splice(from, 1); moving.quadrant = targetQuadrant;
@@ -915,14 +984,29 @@
     });
   }
 
-  function completeTodo(note, id) {
+  function commitTodoCompletion(note, id) {
     const index = note.todos.findIndex(item => item.id === id); if (index < 0) return;
     state.reminderState.activeItems = state.reminderState.activeItems.filter(active => {
       const matches = active.type === "todo" && active.noteId === note.id && active.itemId === id;
       if (matches) state.reminderState.handled[active.key] = true;
       return !matches;
     });
-    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); note.history.unshift(item); render();
+    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); note.history.unshift(item); save();
+    return item;
+  }
+
+  function animateTodoCompletion(row, done) {
+    if (!row) { done(); return; }
+    row.classList.add("is-completing");
+    row.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, MOTION.normal + 40);
+  }
+
+  function completeTodo(note, id) {
+    const row = noteLayer.querySelector(`[data-id="${note.id}"] [data-todo="${id}"]`);
+    const item = commitTodoCompletion(note, id); if (!item) return;
+    let finished = false;
+    animateTodoCompletion(row, () => { if (finished) return; finished = true; render(false); });
     playDodoAnimation("celebrate", { priority: 7, interruptible: false });
     showToast(`已完成“${item.text || "待办"}”`);
   }
@@ -983,7 +1067,7 @@
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const startX = event.clientX, startY = event.clientY, rect = row.getBoundingClientRect();
       const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      let ghost = null, targetRow = null, insertAfter = false;
+      let ghost = null, placeholder = null, targetRow = null, insertAfter = false;
       // Capture only after a drag actually starts, preserving double-click targets.
       const clearTarget = () => {
         targetRow?.classList.remove("timeline-drop-before", "timeline-drop-after");
@@ -996,6 +1080,7 @@
           ghost = row.cloneNode(true); ghost.className = `${row.className} timeline-drag-ghost`;
           ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`;
           document.body.appendChild(ghost); row.classList.add("timeline-drag-source");
+          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row.nextSibling);
         }
         ghost.style.left = `${pointer.clientX - offsetX}px`; ghost.style.top = `${pointer.clientY - offsetY}px`;
         clearTarget();
@@ -1016,12 +1101,14 @@
         const candidateRect = candidate.getBoundingClientRect();
         insertAfter = pointer.clientY > candidateRect.top + candidateRect.height / 2;
         candidate.classList.add(insertAfter ? "timeline-drop-after" : "timeline-drop-before");
+        placeListPlaceholder(placeholder, candidate, insertAfter);
       };
-      const up = () => {
+      const up = event => {
         row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
         if (!ghost) return;
         const targetId = targetRow?.dataset.eventId;
-        clearTarget(); ghost.remove(); row.classList.remove("timeline-drag-source");
+        clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("timeline-drag-source");
+        if (event.type !== "pointerup") return;
         if (!targetId || targetId === item.id) return;
         const from = note.events.findIndex(entry => entry.id === item.id);
         if (from < 0) return;
@@ -1203,35 +1290,56 @@
     Object.assign(note, { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height });
   }
 
+  function beginNotePickup(element) {
+    element.classList.remove("drop-settling");
+    element.classList.add("is-dragging");
+  }
+
+  function settleNoteDrop(element) {
+    element.classList.remove("is-dragging");
+    element.classList.add("drop-settling");
+    setTimeout(() => element.classList.remove("drop-settling"), MOTION.normal);
+  }
+
+  function isSnapDetached(snap, x, y) {
+    return !snap || Math.hypot(x - snap.x, y - snap.y) > DETACH_THRESHOLD;
+  }
+
   function enableDrag(el, handle, note) {
     handle.addEventListener("pointerdown", event => {
       if (event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const wasAttached = Boolean(attachmentByChild(note.id));
-      if (wasAttached) { detachAttachment(note.id); note.locked = false; el.classList.remove("is-attached-child", "is-locked"); }
       if (!wasAttached && note.locked) { showNearTip(el, "便签已钉住，请在更多菜单中选择“拔出”"); return; }
       if (noteWindowId) {
         nativeGesture(event, handle, el, "move", bounds => applyNativeNoteBounds(note, bounds), () => refreshNativeNote());
         return;
       }
       const movingIds = attachedTreeIds(note.id), movingNotes = movingIds.map(noteById).filter(Boolean);
-      event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-dragging"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
+      event.preventDefault(); handle.setPointerCapture(event.pointerId); beginNotePickup(el); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
       movingNotes.forEach(item => { item.z = ++zCounter; noteLayer.querySelector(`[data-id="${item.id}"]`)?.classList.add("is-group-moving"); });
       const startX = event.clientX, startY = event.clientY, startLeft = note.x, startTop = note.y;
       const origins = new Map(movingNotes.map(item => [item.id, { x: item.x, y: item.y }]));
-      let pendingSnap = null;
+      let pendingSnap = null, detached = !wasAttached;
       const move = e => {
-        clearSnapFeedback();
         let dx = e.clientX - startX, dy = e.clientY - startY;
+        if (!detached) {
+          if (Math.hypot(dx, dy) < DETACH_THRESHOLD) return;
+          detachAttachment(note.id); note.locked = false; detached = true;
+          el.classList.remove("is-attached-child", "is-locked");
+        }
         const minX = Math.min(...movingNotes.map(item => origins.get(item.id).x));
         const minY = Math.min(...movingNotes.map(item => origins.get(item.id).y));
         const maxX = Math.max(...movingNotes.map(item => origins.get(item.id).x + item.w));
         const maxY = Math.max(...movingNotes.map(item => origins.get(item.id).y + item.h));
         if (!noteWindowId) {
-          dx = clamp(dx, -minX, desktop.clientWidth - maxX);
-          dy = clamp(dy, 34 - minY, desktop.clientHeight - maxY);
+          const minCanvasX = canvasWindow ? canvasOriginX : 0, minCanvasY = canvasWindow ? canvasOriginY : 0;
+          dx = clamp(dx, minCanvasX - minX, minCanvasX + desktop.clientWidth - maxX);
+          dy = clamp(dy, minCanvasY + 34 - minY, minCanvasY + desktop.clientHeight - maxY);
         }
         const proposedX = startLeft + dx, proposedY = startTop + dy;
-        pendingSnap = findVerticalSnap(note, proposedX, proposedY, new Set(movingIds));
+        const candidateSnap = findVerticalSnap(note, proposedX, proposedY, new Set(movingIds));
+        if (candidateSnap) pendingSnap = candidateSnap;
+        else if (isSnapDetached(pendingSnap, proposedX, proposedY)) pendingSnap = null;
         if (pendingSnap) {
           const snappedDx = dx + pendingSnap.x - proposedX, snappedDy = dy + pendingSnap.y - proposedY;
           const fitsDesktop = minX + snappedDx >= 0 && maxX + snappedDx <= desktop.clientWidth && minY + snappedDy >= 34 && maxY + snappedDy <= desktop.clientHeight;
@@ -1240,33 +1348,34 @@
         movingNotes.forEach(item => {
           const origin = origins.get(item.id); item.x = origin.x + dx; item.y = origin.y + dy;
           const itemEl = noteLayer.querySelector(`[data-id="${item.id}"]`);
-          if (itemEl) { itemEl.style.left = `${item.x}px`; itemEl.style.top = `${item.y}px`; itemEl.style.zIndex = 10000 + item.z; }
+          if (itemEl) { itemEl.style.left = `${canvasLocalX(item.x)}px`; itemEl.style.top = `${canvasLocalY(item.y)}px`; itemEl.style.zIndex = 10000 + item.z; }
         });
-        if (pendingSnap && !noteWindowId) showSnapFeedback(pendingSnap);
+        if (pendingSnap && !noteWindowId) showSnapFeedback(pendingSnap); else clearSnapFeedback();
         if (noteWindowId) window.pindoNote?.setBounds({ x: note.x, y: note.y, width: note.w, height: note.h });
         const nearDock = !noteWindowId && note.type !== "organizer" && desktop.clientWidth - (note.x + el.offsetWidth) < 42;
         dockTarget.querySelector("span").textContent = "松开后收纳";
         el.classList.toggle("near-dock", nearDock); dockTarget.classList.toggle("active", nearDock);
       };
-      const up = () => {
-        const shouldDock = el.classList.contains("near-dock");
-        el.classList.remove("is-dragging", "near-dock"); dockTarget.classList.remove("active"); clearSnapFeedback();
+      const up = event => {
+        const committed = event.type === "pointerup";
+        const shouldDock = committed && el.classList.contains("near-dock");
+        settleNoteDrop(el); el.classList.remove("near-dock"); dockTarget.classList.remove("active"); clearSnapFeedback();
         movingNotes.forEach(item => {
           const itemEl = noteLayer.querySelector(`[data-id="${item.id}"]`);
           if (itemEl) { itemEl.classList.remove("is-group-moving"); itemEl.style.zIndex = item.id === focusedNoteId ? 6500 : item.mode === "top" ? 5000 + item.z : item.z; }
         });
-        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up); handle.removeEventListener("lostpointercapture", up);
         if (shouldDock) collapseNote(note, "已吸附并收纳到右侧");
-        else if (pendingSnap && attachBelow(pendingSnap.parentId, pendingSnap.childId)) { render(); showToast("便签已上下吸附，下方便签将跟随上方便签"); }
+        else if (committed && pendingSnap && attachBelow(pendingSnap.parentId, pendingSnap.childId)) { render(); showToast("便签已上下吸附，下方便签将跟随上方便签"); }
         else { if (wasAttached) render(); else save(); }
       };
-      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up); handle.addEventListener("lostpointercapture", up);
     });
   }
 
   function findVerticalSnap(note, x, y, movingIds) {
     if (note.type === "organizer") return null;
-    const threshold = 20, candidates = [];
+    const threshold = SNAP_THRESHOLD, candidates = [];
     state.notes.filter(target => target.type !== "organizer" && target.mode !== "bookmark" && !movingIds.has(target.id)).forEach(target => {
       const horizontalOverlap = Math.min(x + note.w, target.x + target.w) - Math.max(x, target.x);
       if (horizontalOverlap > 34) {
@@ -1282,15 +1391,25 @@
   }
 
   function showSnapFeedback(snap) {
+    const key = `${snap.parentId}:${snap.childId}:${snap.x}:${snap.y}`;
+    if (activeSnapFeedbackKey === key && noteLayer.querySelector(".note-snap-ghost")) return;
+    clearSnapFeedback(); activeSnapFeedbackKey = key;
     noteLayer.querySelector(`[data-id="${snap.target.id}"]`)?.classList.add("snap-target");
+    const dragged = noteById(snap.childId === snap.target.id ? snap.parentId : snap.childId);
+    if (dragged) {
+      const ghost = document.createElement("div"); ghost.className = "note-snap-ghost";
+      ghost.style.cssText = `left:${canvasLocalX(snap.x)}px;top:${canvasLocalY(snap.y)}px;width:${dragged.w}px;height:${dragged.h}px`;
+      noteLayer.appendChild(ghost);
+    }
     const parent = noteById(snap.parentId), guide = document.createElement("div"); guide.className = "note-snap-guide horizontal";
     const inset = Math.max(24, Math.min(48, (parent?.w || snap.target.w) * .1));
-    guide.style.cssText = `left:${(parent?.x ?? snap.x) + inset}px;top:${snap.seamY - 1}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
+    guide.style.cssText = `left:${canvasLocalX((parent?.x ?? snap.x) + inset)}px;top:${canvasLocalY(snap.seamY - 1)}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
     noteLayer.appendChild(guide);
   }
 
   function clearSnapFeedback() {
-    noteLayer.querySelectorAll(".note-snap-guide").forEach(item => item.remove());
+    activeSnapFeedbackKey = null;
+    noteLayer.querySelectorAll(".note-snap-guide,.note-snap-ghost").forEach(item => item.remove());
     noteLayer.querySelectorAll(".note.snap-target").forEach(item => item.classList.remove("snap-target"));
   }
 
@@ -1307,9 +1426,11 @@
       event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-resizing"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
       const startX = event.clientX, startY = event.clientY, startW = note.w, startH = note.h;
       const move = e => {
-        let nextW = clamp(startW + e.clientX - startX, 280, desktop.clientWidth - note.x);
+        const canvasRight = (canvasWindow ? canvasOriginX : 0) + desktop.clientWidth;
+        const canvasBottom = (canvasWindow ? canvasOriginY : 0) + desktop.clientHeight;
+        let nextW = clamp(startW + e.clientX - startX, 280, canvasRight - note.x);
         const attachedIds = new Set(attachedTreeIds(note.id)), stackCount = attachedIds.size;
-        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((desktop.clientHeight - note.y) / stackCount)));
+        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((canvasBottom - note.y) / stackCount)));
         const visibleOthers = state.notes.filter(item => !attachedIds.has(item.id) && item.mode !== "bookmark");
         const widthMatch = visibleOthers.map(item => ({ item, gap: Math.abs(item.w - nextW) })).filter(match => match.gap <= 12).sort((a, b) => a.gap - b.gap)[0];
         clearSizeMatchFeedback();
@@ -1345,15 +1466,49 @@
     const snapshot = structuredClone(note); snapshot.deletedAt = nowText();
     removeAttachmentsFor(note.id);
     state.recycleBin.unshift(snapshot); state.notes = state.notes.filter(item => item.id !== note.id);
-    render(); showToast(`“${note.title || "未命名便签"}”已移入回收站`);
+    save();
+    animateNoteRemoval(note.id, () => render(false));
+    showToast(`“${note.title || "未命名便签"}”已移入回收站`);
   }
 
-  function collapseNote(note, message = "已收纳到桌面边缘") {
+  function animateNoteRemoval(noteId, done) {
+    const element = noteLayer.querySelector(`[data-id="${noteId}"]`);
+    if (!element) { done(); return; }
+    let finished = false;
+    const complete = () => { if (finished) return; finished = true; done(); };
+    element.classList.add("is-removing");
+    element.addEventListener("transitionend", complete, { once: true });
+    setTimeout(complete, MOTION.normal + 40);
+  }
+
+  function transitionNoteToBookmark(note, message = "已收纳到桌面边缘") {
+    const intent = (noteTransitionIntents.get(note.id) || 0) + 1;
+    noteTransitionIntents.set(note.id, intent);
     removeAttachmentsFor(note.id);
     note.previousMode = note.mode;
     note.restoreSize = { w: note.w, h: note.h };
     note.mode = "bookmark";
-    render(); showToast(message);
+    save();
+    const element = noteLayer.querySelector(`[data-id="${note.id}"]`);
+    if (!element) { render(false); showToast(message); return; }
+    element.classList.add("is-collapsing");
+    setTimeout(() => {
+      if (noteTransitionIntents.get(note.id) !== intent || note.mode !== "bookmark") return;
+      render(false); showToast(message);
+    }, MOTION.slow);
+  }
+
+  function transitionBookmarkToNote(note) {
+    const intent = (noteTransitionIntents.get(note.id) || 0) + 1;
+    noteTransitionIntents.set(note.id, intent);
+    note.mode = note.previousMode || "desktop";
+    if (note.restoreSize) { note.w = note.restoreSize.w; note.h = note.restoreSize.h; }
+    pendingNoteEntrance = { id: note.id, x: innerWidth - 24, y: clamp(note.y + note.h / 2, 24, innerHeight - 24) };
+    save(); render(false); showToast("便签已按原尺寸展开");
+  }
+
+  function collapseNote(note, message = "已收纳到桌面边缘") {
+    transitionNoteToBookmark(note, message);
   }
 
   function showNoteMenu(anchor, note) {
@@ -1598,7 +1753,7 @@
 
   function dismissTransientUI() {
     document.querySelectorAll(".mini-popover,.near-tip").forEach(el=>el.remove());
-    textToolbar.hidden=true; activeTextRange=null;
+    clearPersistentSelection();
     assistantPanel.hidden=true; closeSettings(); focusedNoteId=null;
     document.querySelectorAll(".note.focused").forEach(el=>el.classList.remove("focused"));
     window.getSelection()?.removeAllRanges();
@@ -1608,8 +1763,9 @@
   document.addEventListener("pointerdown",event=>{
     if(controlWindow && event.target.closest(".mascot-button,.assistant-panel,.dodo-nudge,.settings-dialog"))window.pindoNative.command("focus-control");
     if(!event.target.closest(".mascot-button,.assistant-panel,.dodo-nudge"))assistantPanel.hidden=true;
-    if(!event.target.closest(".note,.text-toolbar,.mini-popover")){textToolbar.hidden=true;activeTextRange=null;}
+    if(!event.target.closest(".note,.text-toolbar,.mini-popover")) clearPersistentSelection();
   });
+  document.addEventListener("keydown", event => { if (event.key === "Escape") clearPersistentSelection(); });
   function showMiniPopover(anchor, content, binder) {
     document.querySelectorAll(".mini-popover").forEach(el => el.remove());
     const pop = document.createElement("div"); pop.className = "mini-popover"; pop.innerHTML = content; document.body.appendChild(pop);
@@ -1683,6 +1839,28 @@
   function escapeHtml(value = "") { return String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
   function attr(value = "") { return escapeHtml(value); }
 
+  function highlightNote(noteId, options = {}) {
+    const element = noteLayer.querySelector(`[data-id="${CSS.escape(String(noteId || ""))}"]`);
+    if (!element) return false;
+    element.classList.remove("is-highlighted");
+    void element.offsetWidth;
+    element.classList.add("is-highlighted");
+    setTimeout(() => element.classList.remove("is-highlighted"), options.duration || 900);
+    return true;
+  }
+  window.pindoInteraction = Object.freeze({ highlightNote });
+
+  function paintPersistentSelection() {
+    if (!activeTextRange || !window.CSS?.highlights || typeof window.Highlight !== "function") return;
+    CSS.highlights.set("pindo-selection", new Highlight(activeTextRange));
+  }
+
+  function clearPersistentSelection() {
+    CSS.highlights?.delete?.("pindo-selection");
+    textToolbar.hidden = true;
+    activeTextRange = activeEditor = activeNote = null;
+  }
+
   function updateTextToolbar() {
     if(!document.hasFocus()){textToolbar.hidden=true;return;}
     const selection = window.getSelection();
@@ -1700,6 +1878,7 @@
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
     activeTextRange = range.cloneRange(); activeEditor = editor; activeNote = note;
+    paintPersistentSelection();
     textToolbar.hidden = false;
     const width = textToolbar.offsetWidth;
     const left = clamp(rect.left + rect.width / 2 - width / 2, 10, innerWidth - width - 10);
@@ -1722,6 +1901,7 @@
     const selection = window.getSelection(); selection.removeAllRanges();
     const nextRange = document.createRange(); nextRange.selectNodeContents(span); selection.addRange(nextRange);
     activeTextRange = nextRange.cloneRange();
+    paintPersistentSelection();
     if (activeEditor.classList.contains("note-title")) { activeNote.title = activeEditor.innerText.trim(); activeNote.titleHtml = activeEditor.innerHTML; }
     else if (activeEditor.matches(".todo-text,.timeline-text")) {
       const item = activeEditor.matches(".todo-text") ? activeNote.todos.find(item => item.id === activeEditor.closest(".todo-row").dataset.todo) : activeNote.events.find(item => item.id === activeEditor.closest(".timeline-row").dataset.eventId);
@@ -1750,6 +1930,7 @@
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(activeTextRange);
     document.execCommand(command, false, null);
     if (selection.rangeCount) activeTextRange = selection.getRangeAt(0).cloneRange();
+    paintPersistentSelection();
     persistActiveEditor();
   }
 
@@ -2216,8 +2397,9 @@
       state.notes.filter(note => !attachmentByChild(note.id)).forEach(note => {
         syncAttachedStack(note.id);
         const stack = attachedTreeIds(note.id).map(noteById).filter(Boolean), stackHeight = stack.reduce((sum, item) => sum + item.h, 0);
-        note.x = clamp(note.x, 0, Math.max(0, desktop.clientWidth - note.w));
-        note.y = clamp(note.y, 34, Math.max(34, desktop.clientHeight - stackHeight));
+        const minX = canvasWindow ? canvasOriginX : 0, minY = canvasWindow ? canvasOriginY : 0;
+        note.x = clamp(note.x, minX, Math.max(minX, minX + desktop.clientWidth - note.w));
+        note.y = clamp(note.y, minY + 34, Math.max(minY + 34, minY + desktop.clientHeight - stackHeight));
         syncAttachedStack(note.id);
       });
       positionAssistant(); render();
@@ -2256,6 +2438,12 @@
       try {
         const incoming = JSON.parse(serialized);
         if (!incoming?.notes) return;
+        const previousModes = new Map((state.notes || []).map(note => [note.id, note.mode]));
+        const createdOrRestored = incoming.notes.find(note => note.mode !== "bookmark" && (!previousModes.has(note.id) || previousModes.get(note.id) === "bookmark"));
+        if (createdOrRestored) {
+          if (previousModes.get(createdOrRestored.id) === "bookmark") noteTransitionIntents.set(createdOrRestored.id, (noteTransitionIntents.get(createdOrRestored.id) || 0) + 1);
+          pendingNoteEntrance = { id: createdOrRestored.id, x: canvasLocalX(createdOrRestored.x) + createdOrRestored.w / 2, y: canvasLocalY(createdOrRestored.y) + createdOrRestored.h / 2 };
+        }
         lastDesktopState = serialized;
         state = incoming;
         stateRevision = revision;
@@ -2293,6 +2481,12 @@
 
   if (canvasWindow && window.pindoDesktop?.setCanvasRegions) {
     let scheduled = 0, previous = "";
+    let canvasGestureActive = false;
+    const resetCanvasInteraction = reason => {
+      if (canvasGestureActive) window.pindoDesktop.setCanvasGesture(false);
+      canvasGestureActive = false;
+      void window.pindoDesktop.endCanvasEdit?.(reason);
+    };
     const publish = () => {
       scheduled = 0;
       const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
@@ -2306,13 +2500,25 @@
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
     window.addEventListener('resize', schedule);
     window.pindoDesktop.onCanvasRefresh(schedule);
+    window.pindoDesktop.onCanvasGeometry?.(geometry => {
+      if (Number.isFinite(geometry?.origin?.x)) canvasOriginX = geometry.origin.x;
+      if (Number.isFinite(geometry?.origin?.y)) canvasOriginY = geometry.origin.y;
+      render(); schedule();
+    });
     document.addEventListener('pointerdown', event => {
       const editable = event.target.closest('[contenteditable="true"], input:not([readonly]), textarea');
       if (editable) void window.pindoDesktop.focusCanvasEditor().then(ok => { if (ok && editable.isConnected) editable.focus(); });
-      if (event.target.closest('.note-header, [data-resize-edge]')) window.pindoDesktop.setCanvasGesture(true);
+      if (event.target.closest('.note-header, [data-resize-edge]')) { canvasGestureActive = true; window.pindoDesktop.setCanvasGesture(true); }
     }, true);
-    document.addEventListener('pointerup', () => window.pindoDesktop.setCanvasGesture(false), true);
-    document.addEventListener('pointercancel', () => window.pindoDesktop.setCanvasGesture(false), true);
+    document.addEventListener('focusout', () => queueMicrotask(() => {
+      if (!document.activeElement?.matches?.('[contenteditable="true"], input:not([readonly]), textarea')) void window.pindoDesktop.endCanvasEdit?.('focusout');
+    }), true);
+    document.addEventListener('pointerup', () => { canvasGestureActive = false; window.pindoDesktop.setCanvasGesture(false); }, true);
+    document.addEventListener('pointercancel', () => resetCanvasInteraction('pointercancel'), true);
+    document.addEventListener('lostpointercapture', () => resetCanvasInteraction('lostpointercapture'), true);
+    window.addEventListener('blur', () => resetCanvasInteraction('renderer-blur'));
+    window.addEventListener('pagehide', () => resetCanvasInteraction('pagehide'));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetCanvasInteraction('visibilitychange'); });
     schedule();
   }
 

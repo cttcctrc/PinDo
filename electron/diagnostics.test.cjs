@@ -24,7 +24,8 @@ test('compatibility mode activates reduced effects without disabling Chromium re
 test('diagnostic snapshot contains environment and note shape but no note text', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pindo-diagnostics-'));
   const app = { getPath: () => directory, getGPUInfo: async () => ({}), getName: () => 'PinDo', getVersion: () => '7.0', isPackaged: true, getLocale: () => 'zh-CN' };
-  const service = new Diagnostics({ app, screen: { getAllDisplays: () => [{ id: 1, bounds: {}, workArea: {}, scaleFactor: 1, rotation: 0 }] }, getStore: () => ({ state: { notes: [{ type: 'quick', mode: 'desktop', content: 'private words', w: 400, h: 300 }] } }), getWindows: () => [], compatibility: { enabled: false } });
+  const service = new Diagnostics({ app, screen: { getAllDisplays: () => [{ id: 1, bounds: {}, workArea: {}, scaleFactor: 1, rotation: 0 }] }, getStore: () => ({ state: { notes: [{ type: 'quick', mode: 'desktop', content: 'private words', w: 400, h: 300 }] } }), getWindows: () => [], getCanvasState: () => ({ active: true, editing: false, dragging: false, ignored: true, regionCount: 2, fallbackReason: null }), compatibility: { enabled: false } });
   const report = await service.snapshot();
   assert.equal(report.notes[0].type, 'quick'); assert.doesNotMatch(JSON.stringify(report), /private words/); assert.match(report.privacy, /No note text/);
+  assert.deepEqual(report.canvas, { active: true, editing: false, dragging: false, ignored: true, regionCount: 2, fallbackReason: null });
 });
