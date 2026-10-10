@@ -6,7 +6,7 @@ const { normalizeGroups, createGroupGestures } = require('./native-groups.cjs');
 const { registerCapture } = require('./native-capture.cjs');
 const { createFileIconReader, ICON_VERSION } = require('./file-icon.cjs');
 const { EdgePreview } = require('./edge-preview.cjs');
-function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath}) {
+function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath, diagnostic = null, onDiagnostic = () => {}}) {
   const {ipcMain,screen,BrowserWindow,dialog,shell,app}=electron;
   const readIcon = createFileIconReader(electron);
   const refreshedIcons = new Set();
@@ -49,7 +49,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     } finally { refreshingIcons = false; }
   }
   const base=pathToFileURL(indexPath).href;
-  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath});
+  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath,diagnostic,onDiagnostic});
   let undockedBounds=null;
   function role(event){
     if(!event?.sender || event.senderFrame!==event.sender.mainFrame)return null;
@@ -82,6 +82,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     if(action==='dock-regions' && kind==='dock'){dock.hit.update(value);return true;}
     if(action==='dock-list' && kind==='dock'){return dock.cards || [];}
     if(action==='dock-hover' && kind==='dock'){dock.setHovered(Boolean(value));return true;}
+    if(action==='dock-preview-probe' && kind==='dock'){return dock.setPreviewProbe(value);}
     if(action==='dodo-nearest' && kind==='control'){const b=mainWindow.getBounds(),w=screen.getDisplayMatching(b).workArea;return b.x+b.width/2<w.x+w.width/2?'left':'right';}
     if(action==='dodo-dock' && kind==='control'){dockDodo(value?.side,value?.scale);return true;}
     if(action==='trash' && kind==='note'){

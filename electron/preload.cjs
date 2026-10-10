@@ -61,7 +61,7 @@ contextBridge.exposeInMainWorld('pindoNative', Object.freeze({
   describeFile: file => ipcRenderer.invoke('pindo:native-command', 'describe-file', webUtils.getPathForFile(file)),
   captureSelection: value => ipcRenderer.send('pindo:capture-selection', value),
   on: (name, callback) => {
-    if (!['note-state','snap','dock-state','dodo-docked','capture-image','window-blur','dock-settings','pointer-outside','highlight-item'].includes(name) || typeof callback !== 'function') return () => {};
+    if (!['note-state','snap','dock-state','dodo-docked','capture-image','window-blur','dock-settings','pointer-outside','highlight-item','cf07-preview-state'].includes(name) || typeof callback !== 'function') return () => {};
     const listener = (_event,value) => callback(value); ipcRenderer.on('pindo:'+name,listener);
     return () => ipcRenderer.removeListener('pindo:'+name,listener);
   }

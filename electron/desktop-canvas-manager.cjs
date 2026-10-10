@@ -4,14 +4,19 @@ const { virtualDesktopBounds } = require('./canvas-geometry.cjs');
 
 /** Owns the single, desktop-hosted surface. Never owns or serializes note data. */
 class DesktopCanvasManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop }) {
-    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onError, desktopHost });
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop, diagnostic = null, onDiagnostic = () => {} }) {
+    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onError, desktopHost, diagnostic, onDiagnostic });
     this.window = null;
     this.hitTest = null;
     this.timer = null;
     this.active = false;
     this.editing = false;
     this.fallbackReason = null;
+    this.regionUpdateCount = 0;
+    this.regionRejectedCount = 0;
+    this.regionLastUpdatedAt = null;
+    this.regionLastNonEmptyAt = null;
+    this.rendererReadyAt = null;
   }
 
   async open() {
@@ -23,6 +28,7 @@ class DesktopCanvasManager {
       resizable: false, hasShadow: false, skipTaskbar: true, focusable: false, show: false,
       webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
     });
+    window.pindoWindowProfile = { role: 'desktop-canvas', transparent: true, backgroundColor: '#00000000', host: 'desktop-pending' };
     this.window = window;
     this.hitTest = createCanvasHitTest(window, this.screen);
     this.hitTest.update([]);
@@ -31,6 +37,7 @@ class DesktopCanvasManager {
       if (url.split('?')[0] !== require('node:url').pathToFileURL(this.indexPath).href) event.preventDefault();
     });
     window.webContents.on('did-start-loading', () => this.hitTest?.clear());
+    window.webContents.on('did-finish-load', () => { this.rendererReadyAt = Date.now(); this.onDiagnostic('canvas-renderer-ready', { windowId: window.id, at: this.rendererReadyAt }); });
     window.webContents.on('render-process-gone', (_event, detail) => this.fail(new Error(`Canvas renderer ${detail?.reason || 'failed'} (${detail?.exitCode ?? 'unknown'})`)));
     window.on('blur', () => this.endEdit('window-blur'));
     window.on('hide', () => this.resetInteraction('window-hidden'));
@@ -40,7 +47,9 @@ class DesktopCanvasManager {
       const result = await this.desktopHost(window);
       if (window.isDestroyed()) return;
       if (!result.attached) throw new Error(result.reason || 'Explorer did not accept the canvas');
-      window.showInactive();
+      window.pindoWindowProfile.host = 'explorer-desktop';
+      window.pindoWindowProfile.hostReason = null;
+      if (this.diagnostic?.canvasVisible === false) window.hide?.(); else window.showInactive();
       this.active = true;
       this.timer = setInterval(() => { if (this.active && window.isVisible() && !this.editing) this.hitTest?.refresh(); }, 32);
       this.timer.unref?.();
@@ -51,7 +60,21 @@ class DesktopCanvasManager {
     }
   }
 
-  regions(rectangles) { return this.active && this.hitTest?.update(rectangles); }
+  regions(rectangles) {
+    if (!this.active || !this.hitTest) return false;
+    const accepted = this.hitTest.update(rectangles);
+    const now = Date.now();
+    if (accepted) {
+      this.regionUpdateCount += 1;
+      this.regionLastUpdatedAt = now;
+      if (rectangles.length) this.regionLastNonEmptyAt = now;
+      this.onDiagnostic('canvas-regions-updated', { windowId: this.window?.id, count: rectangles.length, updateCount: this.regionUpdateCount, at: now });
+    } else {
+      this.regionRejectedCount += 1;
+      this.onDiagnostic('canvas-regions-rejected', { windowId: this.window?.id, rejectedCount: this.regionRejectedCount, at: now });
+    }
+    return accepted;
+  }
   gesture(dragging) { if (this.active) this.hitTest?.setDragging(dragging); }
   focusEdit() {
     if (!this.active || !this.window?.isVisible()) return false;
@@ -95,7 +118,7 @@ class DesktopCanvasManager {
     if (failedWindow && !failedWindow.isDestroyed()) failedWindow.destroy();
   }
   interactionState() {
-    return { active: this.active, editing: this.editing, dragging: Boolean(this.hitTest?.state.dragging), ignored: this.hitTest?.state.ignored, regionCount: this.hitTest?.state.regionCount || 0, fallbackReason: this.fallbackReason };
+    return { active: this.active, editing: this.editing, dragging: Boolean(this.hitTest?.state.dragging), ignored: this.hitTest?.state.ignored, regionCount: this.hitTest?.state.regionCount || 0, regionUpdateCount: this.regionUpdateCount, regionRejectedCount: this.regionRejectedCount, regionLastUpdatedAt: this.regionLastUpdatedAt, regionLastNonEmptyAt: this.regionLastNonEmptyAt, rendererReadyAt: this.rendererReadyAt, windowVisible: Boolean(this.window?.isVisible?.()), fallbackReason: this.fallbackReason };
   }
   close() {
     this.active = false;

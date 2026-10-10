@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { DesktopCanvasManager } = require('./desktop-canvas-manager.cjs');
 
-function fixture(desktopHost) {
+function fixture(desktopHost, diagnostic = null) {
   const calls = [];
   const windowEvents = new Map();
   const webEvents = new Map();
@@ -34,7 +34,8 @@ function fixture(desktopHost) {
       getCursorScreenPoint: () => ({ x: 0, y: 0 })
     },
     indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost,
-    onReady: () => calls.push(['ready']), onError: () => calls.push(['error'])
+    onReady: () => calls.push(['ready']), onError: () => calls.push(['error']),
+    onDiagnostic: (event, detail) => calls.push(['diagnostic', event, detail]), diagnostic
   });
   return { calls, manager, windowEvents, webEvents };
 }
@@ -92,4 +93,31 @@ test('renderer failure deactivates canvas and requests native fallback', async (
   assert.equal(manager.active, false);
   assert.ok(calls.some(call => call[0] === 'error'));
   assert.ok(calls.some(call => call[0] === 'destroy'));
+});
+
+test('CF-07 canvas-hidden mode attaches the canvas but never shows it', async () => {
+  const { calls, manager } = fixture(async () => ({ attached: true }), { canvasVisible: false, mode: 'canvas-hidden' });
+  await manager.open();
+  assert.equal(manager.active, true);
+  assert.ok(!calls.some(call => call[0] === 'show'));
+  assert.equal(manager.interactionState().windowVisible, false);
+  assert.equal(manager.window.pindoWindowProfile.host, 'explorer-desktop');
+  manager.close();
+});
+
+test('canvas region diagnostics distinguish empty publication timing from rejected updates', async () => {
+  const { manager } = fixture(async () => ({ attached: true }));
+  await manager.open();
+  assert.equal(manager.regions([]), true);
+  const empty = manager.interactionState();
+  assert.equal(empty.regionCount, 0);
+  assert.equal(empty.regionUpdateCount >= 1, true);
+  assert.equal(empty.regionRejectedCount, 0);
+  assert.equal(Number.isFinite(empty.regionLastUpdatedAt), true);
+  assert.equal(manager.regions([{ x: 10, y: 20, width: 100, height: 80 }]), true);
+  assert.equal(manager.interactionState().regionCount, 1);
+  assert.equal(Number.isFinite(manager.interactionState().regionLastNonEmptyAt), true);
+  assert.equal(manager.regions([{ x: NaN, y: 0, width: 1, height: 1 }]), false);
+  assert.equal(manager.interactionState().regionRejectedCount, 1);
+  manager.close();
 });

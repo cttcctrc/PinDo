@@ -18,13 +18,16 @@ const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 const { readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas } = require('./desktop-mode.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
+const { MODE_LABELS, resolveCf07Diagnostics, relaunchArgs } = require('./cf07-diagnostics.cjs');
 
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
-app.setName(canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
-if (process.platform === 'win32') app.setAppUserModelId(canvasCandidate ? 'com.pindo.canvas-test' : 'com.pindo.notes');
+const cf07 = resolveCf07Diagnostics({ enabled: packageMetadata.cf07Diagnostics === true, softwareRendering: packageMetadata.cf07SoftwareRendering === true });
+if (cf07.softwareRendering) app.disableHardwareAcceleration();
+app.setName(cf07.enabled ? 'PinDo CF-07 Diagnostics' : canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
+if (process.platform === 'win32') app.setAppUserModelId(cf07.enabled ? 'com.pindo.cf07-diagnostics' : canvasCandidate ? 'com.pindo.canvas-test' : 'com.pindo.notes');
 if (canvasCandidate) {
-  const candidateData = path.join(app.getPath('appData'), 'PinDo Canvas Test');
+  const candidateData = path.join(app.getPath('appData'), cf07.enabled ? 'PinDo CF-07 Diagnostics' : 'PinDo Canvas Test');
   fs.mkdirSync(candidateData, { recursive: true });
   app.setPath('userData', candidateData);
 }
@@ -156,7 +159,8 @@ async function importData() {
 }
 
 async function exportDiagnostics() {
-  const result = await dialog.showSaveDialog(mainWindow, { title: '导出 PinDo 诊断报告', defaultPath: path.join(app.getPath('documents'), `PinDo-diagnostics-${new Date().toISOString().slice(0, 10)}.json`), filters: [{ name: 'PinDo 诊断报告', extensions: ['json'] }] });
+  const suffix = cf07.enabled ? `CF07-${cf07.mode}-${cf07.softwareRendering ? 'software' : 'current'}` : 'diagnostics';
+  const result = await dialog.showSaveDialog(mainWindow, { title: '导出 PinDo 诊断报告', defaultPath: path.join(app.getPath('documents'), `PinDo-${suffix}-${new Date().toISOString().replace(/[:.]/g,'-')}.json`), filters: [{ name: 'PinDo 诊断报告', extensions: ['json'] }] });
   if (result.canceled || !result.filePath) return { accepted: false, cancelled: true };
   try { fs.writeFileSync(result.filePath, JSON.stringify(await diagnostics.snapshot(), null, 2), { encoding: 'utf8', mode: 0o600 }); diagnostics.record('diagnostics-exported'); return { accepted: true, filePath: result.filePath }; }
   catch (error) { diagnostics.record('diagnostics-export-failed', { message: error.message }); return { accepted: false, error: '诊断报告导出失败，请检查文件权限。' }; }
@@ -263,8 +267,13 @@ function createTray() {
   let icon = nativeImage.createFromPath(source);
   if (!icon.isEmpty()) icon = icon.resize({ width: 32, height: 32, quality: 'best' });
   tray = new Tray(icon);
-  tray.setToolTip(canvasCandidate ? 'PinDo 画布测试版' : 'PinDo · Dodo');
+  tray.setToolTip(cf07.enabled ? `PinDo CF-07 诊断 · ${cf07.mode}` : canvasCandidate ? 'PinDo 画布测试版' : 'PinDo · Dodo');
+  const diagnosticItems = cf07.enabled ? [{
+    label: `CF-07 模式：${cf07.mode}`,
+    submenu: Object.entries(MODE_LABELS).map(([mode,label])=>({type:'radio',label,checked:mode===cf07.mode,click:()=>{if(mode===cf07.mode)return;app.relaunch({args:relaunchArgs(process.argv,mode)});quitting=true;flushState();app.quit();}}))
+  },{label:'导出 CF-07 诊断报告',click:()=>{void exportDiagnostics();}},{type:'separator'}] : [];
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...diagnosticItems,
     ...canvasCandidate ? [] : [{ label: '更新软件', click: () => { void checkUpdate(true); } }],
     { label: '关闭软件', click: () => { quitting = true; flushState(); app.quit(); } }
   ]));
@@ -281,7 +290,7 @@ function createWindow() {
     y: Math.max(workArea.y, workArea.y + workArea.height - controlHeight - 28),
     width: controlWidth, height: controlHeight, minWidth: 380, minHeight: 620,
     show: false, frame: false, transparent: true, resizable: false, skipTaskbar: true, alwaysOnTop: true,
-    title: canvasCandidate ? 'PinDo 画布测试版 · Dodo' : 'PinDo · Dodo', backgroundColor: '#00000000', hasShadow: false,
+    title: cf07.enabled ? `PinDo CF-07 诊断 · ${cf07.mode}` : canvasCandidate ? 'PinDo 画布测试版 · Dodo' : 'PinDo · Dodo', backgroundColor: '#00000000', hasShadow: false,
     icon: app.isPackaged
       ? path.join(process.resourcesPath, 'pindo-logo.png')
       : path.join(__dirname, '..', 'dist', 'assets', 'pindo-logo.png'),
@@ -290,6 +299,7 @@ function createWindow() {
       contextIsolation: true, sandbox: true, nodeIntegration: false
     }
   });
+  mainWindow.pindoWindowProfile = { role: 'dodo-control', transparent: true, backgroundColor: '#00000000', host: 'top-level' };
   mainWindow.setAlwaysOnTop(true, 'floating');
   mainWindow.on('focus', () => { for(const [id,w] of noteWindowManager?.windows||[])if(w.pindoActive)noteWindowManager.setActive(id,false); mainWindow.setAlwaysOnTop(true, 'floating'); mainWindow.moveTop(); });
   mainWindow.on('blur', () => mainWindow.webContents.send('pindo:window-blur'));
@@ -351,7 +361,8 @@ else {
       setImmediate(broadcastState);
       event.returnValue = { accepted: true, revision: noteStore.revision };
     });
-    diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), getCanvasState: () => desktopCanvas?.interactionState?.() || { active: false }, compatibility: compatibilityState });
+    diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), getCanvasState: () => desktopCanvas?.interactionState?.() || { active: false }, getCf07State: () => ({ enabled: cf07.enabled, mode: cf07.mode, softwareRendering: cf07.softwareRendering, dock: nativeFeatures?.dock?.diagnosticState?.() || null }), compatibility: compatibilityState });
+    if (cf07.enabled) diagnostics.record('cf07-session-start', { mode: cf07.mode, softwareRendering: cf07.softwareRendering, compatibilityEnabled: compatibilityState.enabled, desktopModeEnabled: desktopMode.enabled });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
     ipcMain.handle('pindo:data-action', async (event, action, value) => {
@@ -442,9 +453,10 @@ else {
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
     if (shouldUseDesktopCanvas({ enabled: desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1', compatibilityEnabled: compatibilityState.enabled })) {
-      desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'),
+      desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
-        onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); }
+        onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); },
+        onDiagnostic: (event,detail) => diagnostics.record(event,detail)
       });
       ipcMain.on('pindo:canvas-regions', (event, rectangles) => { if (trustedCanvasSender(event)) desktopCanvas.regions(rectangles); });
       ipcMain.on('pindo:canvas-gesture', (event, active) => { if (trustedCanvasSender(event)) desktopCanvas.gesture(Boolean(active)); });
@@ -453,7 +465,7 @@ else {
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs')});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {
