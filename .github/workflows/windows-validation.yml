@@ -29,6 +29,34 @@ jobs:
         run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64
       - name: Launch packaged app and capture native windows
         run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
+      - name: Build CF-07 hardware-path diagnostic installer
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/cf-07-win10-ltsc-black-background'
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-cf07.${{ github.run_number }}
+        run: |
+          npx electron-builder --config electron-builder.cf07-diagnostic.cjs --win nsis --x64 --publish never
+          node scripts/windows-smoke.cjs "release-cf07-diagnostic/win-unpacked/PinDo CF-07 Diagnostics.exe" release-cf07-diagnostic/smoke
+      - name: Build CF-07 software-path diagnostic installer
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/cf-07-win10-ltsc-black-background'
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-cf07.${{ github.run_number }}
+        run: |
+          npx electron-builder --config electron-builder.cf07-software.cjs --win nsis --x64 --publish never
+          node scripts/windows-smoke.cjs "release-cf07-software/win-unpacked/PinDo CF-07 Diagnostics Software.exe" release-cf07-software/smoke
+      - name: Upload CF-07 diagnostic installers and smoke evidence
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/cf-07-win10-ltsc-black-background'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-cf07-diagnostics-${{ github.run_number }}
+          path: |
+            release-cf07-diagnostic/*.exe
+            release-cf07-diagnostic/smoke/**
+            release-cf07-software/*.exe
+            release-cf07-software/smoke/**
+          if-no-files-found: error
+          retention-days: 14
       - name: Build installable PR test package
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1')
         shell: pwsh
