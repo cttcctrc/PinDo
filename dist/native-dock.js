@@ -3,6 +3,8 @@ const preview = document.querySelector('#preview');
 const overflow = document.querySelector('#overflow');
 const MOTION = Object.freeze({ fast: 110, normal: 190, slow: 280 });
 const PREVIEW_CLOSE_DELAY = 180;
+const cf07 = new URLSearchParams(location.search);
+const CF07_PREVIEW = cf07.get('cf07Preview') || 'inline';
 let notes = [], dragging = null, uiScale = 1, previewNoteId = null, previewCloseTimer = 0;
 
 const shapes = {
@@ -31,6 +33,7 @@ function cancelPreviewClose() { clearTimeout(previewCloseTimer); previewCloseTim
 function hidePreview() {
   cancelPreviewClose();
   preview.hidden = true; preview.classList.remove('show'); previewNoteId = null;
+  if (CF07_PREVIEW === 'separate') window.pindoNative.command('dock-preview-probe', { show: false });
   window.pindoNative.command('dock-hover',false); requestAnimationFrame(regions);
 }
 function schedulePreviewClose() {
@@ -39,6 +42,13 @@ function schedulePreviewClose() {
 }
 
 function showPreview(button, note) {
+  if (CF07_PREVIEW === 'off') { hidePreview(); return; }
+  if (CF07_PREVIEW === 'separate') {
+    cancelPreviewClose(); preview.hidden = true; preview.classList.remove('show'); previewNoteId = note.id;
+    const estimatedHeight = Math.min(240, note.summary ? 132 : 88);
+    window.pindoNative.command('dock-preview-probe', { show: true, top: clampPreviewTop(button, estimatedHeight), height: estimatedHeight, note });
+    window.pindoNative.command('dock-hover',true); requestAnimationFrame(regions); return;
+  }
   cancelPreviewClose(); preview.replaceChildren(); previewNoteId = note.id;
   if (note.type === 'todo') { const count = document.createElement('b'); count.textContent = note.count; preview.append(count); }
   const heading = document.createElement('strong'); heading.textContent = note.title; preview.append(heading);
