@@ -1,0 +1,50 @@
+name: Build current-fixes Windows candidate
+on:
+  push:
+    branches: [fix/current-test-concentrated-fixes]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Unit and regression tests
+        run: npm test
+      - name: Check desktop architecture
+        run: npm run check:desktop
+      - name: Build unpacked Windows candidate
+        run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64
+      - name: Launch packaged app and capture smoke evidence
+        run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
+      - name: Build installable candidate without publishing
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+          node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+      - name: Upload candidate and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-current-fixes-candidate-${{ github.run_number }}
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
+            release-validation/smoke/**
+          if-no-files-found: warn
+          retention-days: 14

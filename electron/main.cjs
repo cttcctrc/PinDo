@@ -529,8 +529,8 @@ else {
       setTimeout(() => {
         smokeTrace('smoke started');
         void runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore: () => noteStore, outputDirectory: process.env.PINDO_SMOKE_OUTPUT || path.join(app.getPath('temp'), 'pindo-smoke') })
-          .then(report => { quitting = true; flushState(); app.exit(report.passed ? 0 : 1); })
-          .catch(error => { console.error('PinDo smoke test failed:', error); quitting = true; app.exit(1); });
+          .then(report => { quitting = true; desktopCanvas?.close(); flushState(); app.exit(report.passed ? 0 : 1); })
+          .catch(error => { console.error('PinDo smoke test failed:', error); quitting = true; desktopCanvas?.close(); app.exit(1); });
       }, 1200);
     }
   }).catch(error => { smokeTrace('startup failed', error); console.error('PinDo startup failed:', error); app.exit(1); });

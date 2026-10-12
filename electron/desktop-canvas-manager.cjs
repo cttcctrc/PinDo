@@ -17,6 +17,9 @@ class DesktopCanvasManager {
     this.regionLastUpdatedAt = null;
     this.regionLastNonEmptyAt = null;
     this.rendererReadyAt = null;
+    this.recovering = null;
+    this.lifecycleReady = false;
+    this.closing = false;
   }
 
   async open() {
@@ -41,7 +44,13 @@ class DesktopCanvasManager {
     window.webContents.on('render-process-gone', (_event, detail) => this.fail(new Error(`Canvas renderer ${detail?.reason || 'failed'} (${detail?.exitCode ?? 'unknown'})`)));
     window.on('blur', () => this.endEdit('window-blur'));
     window.on('hide', () => this.resetInteraction('window-hidden'));
-    window.on('closed', () => { clearInterval(this.timer); if (this.window === window) { this.window = null; this.active = false; } });
+    window.on('closed', () => {
+      clearInterval(this.timer);
+      if (this.window !== window) return;
+      const unexpected = this.active && !this.closing;
+      this.window = null; this.active = false; this.hitTest = null;
+      if (unexpected) { this.fallbackReason = 'Canvas window closed after Explorer lifecycle change'; this.onError(new Error(this.fallbackReason)); }
+    });
     try {
       await window.loadFile(this.indexPath, { query: { canvasWindow: '1', canvasOriginX: String(canvasBounds.x), canvasOriginY: String(canvasBounds.y) } });
       const result = await this.desktopHost(window);
@@ -49,8 +58,10 @@ class DesktopCanvasManager {
       if (!result.attached) throw new Error(result.reason || 'Explorer did not accept the canvas');
       window.pindoWindowProfile.host = 'explorer-desktop';
       window.pindoWindowProfile.hostReason = null;
-      if (this.diagnostic?.canvasVisible === false) window.hide?.(); else window.showInactive();
       this.active = true;
+      this.installLifecycleHooks(window);
+      if (this.diagnostic?.canvasVisible === false) window.hide?.(); else window.showInactive();
+      this.lifecycleReady = true;
       this.timer = setInterval(() => { if (this.active && window.isVisible() && !this.editing) this.hitTest?.refresh(); }, 32);
       this.timer.unref?.();
       window.webContents.send('pindo:canvas-refresh-regions');
@@ -58,6 +69,43 @@ class DesktopCanvasManager {
     } catch (error) {
       this.fail(error);
     }
+  }
+
+  installLifecycleHooks(window) {
+    if (typeof window?.hookWindowMessage !== 'function') return;
+    const messages = new Map([
+      [0x0018, 'show-desktop'],
+      [0x001a, 'desktop-settings'],
+      [0x007e, 'display-change'],
+      [0x031e, 'dwm-composition-change']
+    ]);
+    for (const [message, reason] of messages) window.hookWindowMessage(message, wParam => {
+      if (!this.lifecycleReady || !this.active || this.closing) return;
+      if (message === 0x0018 && Buffer.isBuffer(wParam) && wParam.length >= 4 && wParam.readUInt32LE(0) === 0) {
+        this.resetInteraction('desktop-hidden'); return;
+      }
+      void this.recoverDesktopHost(reason);
+    });
+    window.on?.('restore', () => { if (this.lifecycleReady) void this.recoverDesktopHost('window-restore'); });
+  }
+
+  async recoverDesktopHost(reason = 'desktop-lifecycle') {
+    if (!this.active || !this.window || this.window.isDestroyed() || this.closing) return false;
+    if (this.recovering) return this.recovering;
+    const window = this.window;
+    this.recovering = (async () => {
+      this.resetInteraction(reason);
+      const result = await this.desktopHost(window);
+      if (this.window !== window || window.isDestroyed()) return false;
+      if (!result?.attached) { this.fail(new Error(result?.reason || `Explorer host recovery failed: ${reason}`)); return false; }
+      window.pindoWindowProfile.host = 'explorer-desktop';
+      window.pindoWindowProfile.hostReason = reason;
+      window.webContents.invalidate?.();
+      window.webContents.send('pindo:canvas-refresh-regions');
+      this.onDiagnostic('canvas-host-recovered', { windowId: window.id, reason, at: Date.now() });
+      return true;
+    })().finally(() => { this.recovering = null; });
+    return this.recovering;
   }
 
   regions(rectangles) {
@@ -113,6 +161,7 @@ class DesktopCanvasManager {
     this.timer = null;
     this.resetInteraction('fallback');
     const failedWindow = this.window;
+    this.closing = true;
     this.window = null;
     this.onError(error instanceof Error ? error : new Error(this.fallbackReason));
     if (failedWindow && !failedWindow.isDestroyed()) failedWindow.destroy();
@@ -122,11 +171,12 @@ class DesktopCanvasManager {
   }
   close() {
     this.active = false;
+    this.closing = true;
     clearInterval(this.timer);
     this.timer = null;
     this.resetInteraction('close');
     this.hitTest?.clear();
-    if (this.window && !this.window.isDestroyed()) this.window.destroy();
+    if (this.window && !this.window.isDestroyed()) { this.window.unhookAllWindowMessages?.(); this.window.destroy(); }
   }
 }
 

@@ -921,21 +921,7 @@
   }
 
   function todoDropSlot(items, movingId, { targetId = "", after = false, quadrant = "", previousId = "", nextId = "" } = {}) {
-    const remaining = items.filter(item => item.id !== movingId);
-    let index = nextId ? remaining.findIndex(item => item.id === nextId) : -1;
-    if (index < 0 && previousId) {
-      const previousIndex = remaining.findIndex(item => item.id === previousId);
-      if (previousIndex >= 0) index = previousIndex + 1;
-    }
-    if (index < 0 && targetId) {
-      const targetIndex = remaining.findIndex(item => item.id === targetId);
-      if (targetIndex >= 0) index = targetIndex + (after ? 1 : 0);
-    }
-    if (index < 0) {
-      const matching = remaining.map((item, itemIndex) => ({ item, itemIndex })).filter(entry => (entry.item.quadrant || "") === quadrant);
-      index = matching.length ? matching.at(-1).itemIndex + 1 : remaining.length;
-    }
-    return { index: Math.max(0, Math.min(index, remaining.length)), quadrant };
+    return PinDoTodoReorder.resolveTodoDrop(items, movingId, { targetId, after, quadrant, previousId, nextId });
   }
 
   function placeholderPreviousTodoId(placeholder) {
@@ -955,12 +941,17 @@
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const startX = event.clientX, startY = event.clientY, rect = row.getBoundingClientRect();
       const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      let ghost = null, placeholder = null, targetRow = null, targetList = null, insertAfter = false;
+      let ghost = null, placeholder = null, targetList = null, currentSlotKey = "";
+      const scrollContainer = row.closest(".note-body");
+      const commit = PinDoTodoReorder.createDropCommit(slot => {
+        const result = PinDoTodoReorder.applyTodoDrop(note.todos, todo.id, slot);
+        if (!result.changed) { render(false); return; }
+        note.todos = result.items; render(); showToast("待办顺序已调整");
+      });
       // Capture only after a drag actually starts, preserving double-click targets.
       const clearTarget = () => {
-        targetRow?.classList.remove("todo-drop-before", "todo-drop-after");
         targetList?.classList.remove("todo-drop-zone");
-        targetRow = null; targetList = null;
+        targetList = null;
       };
       const move = pointer => {
         if (!ghost && Math.hypot(pointer.clientX - startX, pointer.clientY - startY) < 5) return;
@@ -968,52 +959,36 @@
           row.setPointerCapture(event.pointerId);
           ghost = row.cloneNode(true); ghost.className = `${row.className} todo-drag-ghost`;
           ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`;
-          document.body.appendChild(ghost); row.classList.add("todo-drag-source");
-          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row.nextSibling);
+          document.body.appendChild(ghost);
+          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row);
+          row.classList.add("todo-drag-source");
         }
         ghost.style.left = `${pointer.clientX - offsetX}px`; ghost.style.top = `${pointer.clientY - offsetY}px`;
-        clearTarget();
+        if(scrollContainer){const scrollRect=scrollContainer.getBoundingClientRect(),delta=PinDoTodoReorder.autoScrollDelta(pointer.clientY,scrollRect.top,scrollRect.bottom);if(delta)scrollContainer.scrollTop+=delta;}
         const hit = document.elementFromPoint(pointer.clientX, pointer.clientY);
         const noteElement = hit?.closest(".note");
         if (noteElement?.dataset.id !== note.id) return;
-        const candidate = hit?.closest(".todo-row");
-        if (candidate === row) return;
-        if (candidate && candidate !== row) {
-          targetRow = candidate;
-          const candidateRect = candidate.getBoundingClientRect();
-          insertAfter = pointer.clientY > candidateRect.top + candidateRect.height / 2;
-          candidate.classList.add(insertAfter ? "todo-drop-after" : "todo-drop-before");
-          placeListPlaceholder(placeholder, candidate, insertAfter);
-          return;
-        }
-        targetList = hit?.closest(".todo-list,.quadrant-list");
+        const nextList = hit?.closest(".todo-list,.quadrant-list") || hit?.closest(".todo-row")?.parentElement;
+        if (!nextList?.matches?.(".todo-list,.quadrant-list")) return;
+        if(targetList!==nextList){clearTarget();targetList=nextList;targetList.classList.add("todo-drop-zone");}
         if (targetList) {
-          targetList.classList.add("todo-drop-zone");
-          animateListReflow(targetList, () => targetList.appendChild(placeholder));
+          const rows=[...targetList.querySelectorAll(".todo-row")].filter(entry=>entry!==row).map(entry=>{const box=entry.getBoundingClientRect();return{id:entry.dataset.todo,top:box.top,bottom:box.bottom,element:entry};});
+          const slot=PinDoTodoReorder.slotFromGeometry(rows,pointer.clientY),slotKey=`${targetList.dataset.quadrantList||""}:${slot.previousId}:${slot.nextId}`;
+          if(slotKey===currentSlotKey)return;currentSlotKey=slotKey;
+          const next=rows.find(entry=>entry.id===slot.nextId)?.element;
+          animateListReflow(targetList,()=>targetList.insertBefore(placeholder,next||null));
         }
       };
       const up = event => {
-        row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
+        row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up); row.removeEventListener("lostpointercapture", up); window.removeEventListener("blur", up);
         if (!ghost) return;
-        const targetId = targetRow?.dataset.todo;
-        const targetQuadrant = targetRow
-          ? note.todos.find(item => item.id === targetId)?.quadrant || ""
-          : targetList?.dataset.quadrantList || "";
-        const placement = todoDropSlot(note.todos, todo.id, {
-          targetId, after: insertAfter, quadrant: targetQuadrant,
-          previousId: placeholderPreviousTodoId(placeholder),
-          nextId: placeholderNextTodoId(placeholder)
-        });
+        const validTarget=targetList;
+        const slot={quadrant:validTarget?.dataset.quadrantList||"",previousId:placeholderPreviousTodoId(placeholder),nextId:placeholderNextTodoId(placeholder)};
         clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("todo-drag-source");
-        if (event.type !== "pointerup") return;
-        const from = note.todos.findIndex(item => item.id === todo.id);
-        if (from < 0) return;
-        const [moving] = note.todos.splice(from, 1); moving.quadrant = placement.quadrant;
-        if (targetRow || targetList) note.todos.splice(placement.index, 0, moving);
-        else note.todos.splice(from, 0, moving);
-        render(); showToast("待办顺序已调整");
+        if (event.type !== "pointerup" || !validTarget) { commit.cancel(); render(false); return; }
+        commit.finish(slot);
       };
-      row.addEventListener("pointermove", move); row.addEventListener("pointerup", up); row.addEventListener("pointercancel", up);
+      row.addEventListener("pointermove", move); row.addEventListener("pointerup", up); row.addEventListener("pointercancel", up); row.addEventListener("lostpointercapture", up); window.addEventListener("blur", up,{once:true});
     });
   }
 
@@ -1024,7 +999,7 @@
       if (matches) state.reminderState.handled[active.key] = true;
       return !matches;
     });
-    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); note.history.unshift(item); save();
+    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); if(PinDoContent.hasTodoContent(item))note.history.unshift(item); save();
     return item;
   }
 
@@ -1496,12 +1471,13 @@
       if (active.noteId !== note.id) return true;
       state.reminderState.handled[active.key] = true; return false;
     });
+    const keepHistory = PinDoContent.hasUserContent(note);
     const snapshot = structuredClone(note); snapshot.deletedAt = nowText();
     removeAttachmentsFor(note.id);
-    state.recycleBin.unshift(snapshot); state.notes = state.notes.filter(item => item.id !== note.id);
+    if(keepHistory)state.recycleBin.unshift(snapshot); state.notes = state.notes.filter(item => item.id !== note.id);
     save();
     animateNoteRemoval(note.id, () => render(false));
-    showToast(`“${note.title || "未命名便签"}”已移入回收站`);
+    showToast(keepHistory?`“${note.title || "未命名便签"}”已移入回收站`:"空便签已删除");
   }
 
   function animateNoteRemoval(noteId, done) {

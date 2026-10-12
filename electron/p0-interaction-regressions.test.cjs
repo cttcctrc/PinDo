@@ -8,10 +8,14 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('todo drop commits the visible dashed placeholder position', () => {
   const app = read('dist/app.js');
+  const css = read('dist/styles.css');
   assert.match(app, /function todoDropSlot\(/);
   assert.match(app, /placeholderPreviousTodoId/);
   assert.match(app, /placeholderNextTodoId/);
-  assert.match(app, /const placement = todoDropSlot\(/);
+  assert.match(app, /PinDoTodoReorder\.applyTodoDrop/);
+  assert.match(app, /PinDoTodoReorder\.autoScrollDelta/);
+  assert.match(app, /lostpointercapture/);
+  assert.match(css, /\.todo-drag-source\s*\{[^}]*position:\s*fixed\s*!important[^}]*visibility:\s*hidden\s*!important[^}]*pointer-events:\s*none\s*!important/);
 });
 
 test('dock hover preview cannot create scrollbars and uses the dark translucent surface', () => {

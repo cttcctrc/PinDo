@@ -1327,7 +1327,7 @@ body, button, input, select, textarea { font-family: var(--ui-latin-font), var(-
 .time-wheel-hint { display:block; margin-top:7px; color:#a0a4ad; font-size:var(--sys-xs); text-align:center; }
 
 /* Pointer-driven todo sorting: a floating card plus explicit insertion frame. */
-.todo-drag-source { opacity:.28; }
+.todo-drag-source { position:fixed!important; visibility:hidden!important; pointer-events:none!important; }
 .todo-drag-ghost { position:fixed !important; z-index:20000 !important; pointer-events:none !important; margin:0 !important; opacity:.96; transform:rotate(.7deg) scale(1.015); box-shadow:0 18px 42px rgba(43,52,70,.24) !important; background:rgba(255,255,255,.96) !important; }
 .todo-row.todo-drop-before::before, .todo-row.todo-drop-after::after { content:""; position:absolute; z-index:3; left:5px; right:5px; height:3px; border-radius:99px; background:linear-gradient(90deg,transparent,#4e7ee1 18%,#4e7ee1 82%,transparent); box-shadow:0 0 0 4px rgba(78,126,225,.1); }
 .todo-row.todo-drop-before::before { top:-5px; }

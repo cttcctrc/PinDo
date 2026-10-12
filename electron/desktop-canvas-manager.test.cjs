@@ -23,6 +23,8 @@ function fixture(desktopHost, diagnostic = null) {
     showInactive() { this.visible = true; calls.push(['show']); }
     setBounds(bounds) { this.bounds = { ...this.bounds, ...bounds }; calls.push(['bounds', bounds]); }
     destroy() { this.destroyed = true; calls.push(['destroy']); }
+    hookWindowMessage(message, handler) { calls.push(['hook', message]); this.messages ||= new Map(); this.messages.set(message, handler); }
+    unhookAllWindowMessages() { calls.push(['unhook']); }
   }
   const manager = new DesktopCanvasManager({ BrowserWindow: Win,
     screen: {
@@ -120,4 +122,37 @@ test('canvas region diagnostics distinguish empty publication timing from reject
   assert.equal(manager.regions([{ x: NaN, y: 0, width: 1, height: 1 }]), false);
   assert.equal(manager.interactionState().regionRejectedCount, 1);
   manager.close();
+});
+
+test('Show Desktop and compositor lifecycle messages revalidate Explorer hosting without polling', async () => {
+  let attachments = 0;
+  const { calls, manager } = fixture(async () => ({ attached: ++attachments > 0 }));
+  await manager.open();
+  assert.equal(manager.active, true);
+  const initial = attachments;
+  manager.window.messages.get(0x0018)?.(Buffer.from([1, 0, 0, 0]));
+  await new Promise(setImmediate);
+  assert.equal(attachments, initial + 1);
+  assert.ok(calls.some(call => call[0] === 'diagnostic' && call[1] === 'canvas-host-recovered'));
+  assert.equal(calls.some(call => call[0] === 'hook' && call[1] === 0x031e), true);
+  manager.close();
+});
+
+test('failed host revalidation leaves native-window fallback available', async () => {
+  let attachments = 0;
+  const { calls, manager } = fixture(async () => ({ attached: ++attachments === 1, reason: 'Explorer restarted' }));
+  await manager.open();
+  await manager.recoverDesktopHost('explorer-lifecycle');
+  assert.equal(manager.active, false);
+  assert.ok(calls.some(call => call[0] === 'error'));
+  assert.ok(calls.some(call => call[0] === 'destroy'));
+});
+
+test('intentional shutdown closes Canvas without requesting native fallback', async () => {
+  const { calls, manager } = fixture(async () => ({ attached: true }));
+  await manager.open();
+  manager.close();
+  assert.equal(manager.active, false);
+  assert.equal(calls.some(call => call[0] === 'error'), false);
+  assert.ok(calls.some(call => call[0] === 'unhook'));
 });
