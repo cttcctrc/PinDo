@@ -920,6 +920,36 @@
     animateListReflow(container, () => container.insertBefore(placeholder, after ? candidate.nextSibling : candidate));
   }
 
+  function todoDropSlot(items, movingId, { targetId = "", after = false, quadrant = "", previousId = "", nextId = "" } = {}) {
+    const remaining = items.filter(item => item.id !== movingId);
+    let index = nextId ? remaining.findIndex(item => item.id === nextId) : -1;
+    if (index < 0 && previousId) {
+      const previousIndex = remaining.findIndex(item => item.id === previousId);
+      if (previousIndex >= 0) index = previousIndex + 1;
+    }
+    if (index < 0 && targetId) {
+      const targetIndex = remaining.findIndex(item => item.id === targetId);
+      if (targetIndex >= 0) index = targetIndex + (after ? 1 : 0);
+    }
+    if (index < 0) {
+      const matching = remaining.map((item, itemIndex) => ({ item, itemIndex })).filter(entry => (entry.item.quadrant || "") === quadrant);
+      index = matching.length ? matching.at(-1).itemIndex + 1 : remaining.length;
+    }
+    return { index: Math.max(0, Math.min(index, remaining.length)), quadrant };
+  }
+
+  function placeholderPreviousTodoId(placeholder) {
+    let sibling = placeholder?.previousElementSibling;
+    while (sibling && !sibling.matches?.(".todo-row")) sibling = sibling.previousElementSibling;
+    return sibling?.dataset.todo || "";
+  }
+
+  function placeholderNextTodoId(placeholder) {
+    let sibling = placeholder?.nextElementSibling;
+    while (sibling && !sibling.matches?.(".todo-row")) sibling = sibling.nextElementSibling;
+    return sibling?.dataset.todo || "";
+  }
+
   function enableTodoReorder(row, note, todo) {
     row.addEventListener("pointerdown", event => {
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
@@ -957,7 +987,10 @@
           return;
         }
         targetList = hit?.closest(".todo-list,.quadrant-list");
-        targetList?.classList.add("todo-drop-zone");
+        if (targetList) {
+          targetList.classList.add("todo-drop-zone");
+          animateListReflow(targetList, () => targetList.appendChild(placeholder));
+        }
       };
       const up = event => {
         row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
@@ -966,18 +999,18 @@
         const targetQuadrant = targetRow
           ? note.todos.find(item => item.id === targetId)?.quadrant || ""
           : targetList?.dataset.quadrantList || "";
+        const placement = todoDropSlot(note.todos, todo.id, {
+          targetId, after: insertAfter, quadrant: targetQuadrant,
+          previousId: placeholderPreviousTodoId(placeholder),
+          nextId: placeholderNextTodoId(placeholder)
+        });
         clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("todo-drag-source");
         if (event.type !== "pointerup") return;
         const from = note.todos.findIndex(item => item.id === todo.id);
         if (from < 0) return;
-        const [moving] = note.todos.splice(from, 1); moving.quadrant = targetQuadrant;
-        if (targetId) {
-          const targetIndex = note.todos.findIndex(item => item.id === targetId);
-          note.todos.splice(Math.max(0, targetIndex + (insertAfter ? 1 : 0)), 0, moving);
-        } else if (targetList) {
-          const matching = note.todos.map((item, index) => ({ item, index })).filter(entry => (entry.item.quadrant || "") === targetQuadrant);
-          note.todos.splice(matching.length ? matching.at(-1).index + 1 : note.todos.length, 0, moving);
-        } else note.todos.splice(from, 0, moving);
+        const [moving] = note.todos.splice(from, 1); moving.quadrant = placement.quadrant;
+        if (targetRow || targetList) note.todos.splice(placement.index, 0, moving);
+        else note.todos.splice(from, 0, moving);
         render(); showToast("待办顺序已调整");
       };
       row.addEventListener("pointermove", move); row.addEventListener("pointerup", up); row.addEventListener("pointercancel", up);

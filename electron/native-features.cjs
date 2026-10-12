@@ -6,7 +6,7 @@ const { normalizeGroups, createGroupGestures } = require('./native-groups.cjs');
 const { registerCapture } = require('./native-capture.cjs');
 const { createFileIconReader, ICON_VERSION } = require('./file-icon.cjs');
 const { EdgePreview } = require('./edge-preview.cjs');
-function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath, diagnostic = null, onDiagnostic = () => {}}) {
+function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath, diagnostic = null, dockHostPolicy = null, onDiagnostic = () => {}}) {
   const {ipcMain,screen,BrowserWindow,dialog,shell,app}=electron;
   const readIcon = createFileIconReader(electron);
   const refreshedIcons = new Set();
@@ -49,7 +49,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     } finally { refreshingIcons = false; }
   }
   const base=pathToFileURL(indexPath).href;
-  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath,diagnostic,onDiagnostic});
+  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath,diagnostic,hostPolicy:dockHostPolicy,onDiagnostic});
   let undockedBounds=null;
   function role(event){
     if(!event?.sender || event.senderFrame!==event.sender.mainFrame)return null;

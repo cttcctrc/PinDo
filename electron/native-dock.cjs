@@ -2,11 +2,12 @@ const path = require('node:path');
 const { createControlHitTest } = require('./control-pointer.cjs');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
 class NativeDock {
-  constructor({ BrowserWindow, screen, preloadPath, indexPath, diagnostic = null, desktopHost = attachToWindowsDesktop, onDiagnostic = () => {} }) {
+  constructor({ BrowserWindow, screen, preloadPath, indexPath, diagnostic = null, desktopHost = attachToWindowsDesktop, hostPolicy = null, onDiagnostic = () => {} }) {
     this.screen=screen;this.indexPath=indexPath;this.preloadPath=preloadPath;this.diagnostic=diagnostic || {mode:'baseline',preview:'inline',canvasVisible:true,dockVisible:true,dock:{transparent:true,backgroundColor:'#00000000',host:'desktop'}};this.desktopHost=desktopHost;this.onDiagnostic=onDiagnostic;
-    const dockProfile=this.diagnostic.dock || {transparent:true,backgroundColor:'#00000000',host:'desktop'};
+    const requestedProfile=this.diagnostic.dock || {transparent:true,backgroundColor:'#00000000',host:'desktop'};
+    const dockProfile=hostPolicy?.host==='top' && this.diagnostic.mode==='baseline' ? {...requestedProfile,host:'top'} : requestedProfile;
     this.window=new BrowserWindow({width:430,height:700,frame:false,transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',show:false,resizable:false,skipTaskbar:true,alwaysOnTop:false,webPreferences:{preload:preloadPath,contextIsolation:true,sandbox:true,nodeIntegration:false}});
-    this.window.pindoWindowProfile={role:'native-dock',transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',host:dockProfile.host==='top'?'top-level':'desktop-pending'};
+    this.window.pindoWindowProfile={role:'native-dock',transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',host:dockProfile.host==='top'?'top-level':'desktop-pending',hostReason:hostPolicy?.reason || null};
     this.hit=createControlHitTest(this.window,screen);
     this.window.webContents.setWindowOpenHandler(() => ({action:'deny'}));
     this.window.webContents.on('will-navigate', e=>e.preventDefault());

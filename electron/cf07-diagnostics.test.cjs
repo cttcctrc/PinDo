@@ -70,4 +70,8 @@ test('CF-07 workflow builds evidence without publishing a test-channel release',
   assert.match(workflow, /pindo-cf07-diagnostics-/);
   const cf07Block = workflow.slice(workflow.indexOf('Build CF-07 hardware-path'), workflow.indexOf('Build installable PR test package'));
   assert.doesNotMatch(cf07Block, /gh release|--publish always|test\.yml/);
+  const candidateBlock = workflow.slice(workflow.indexOf('Build installable PR test package'), workflow.indexOf('publish-test:'));
+  assert.match(candidateBlock, /fix\/cf-07-win10-ltsc-black-background/);
+  assert.match(candidateBlock, /electron-builder\.candidate\.cjs/);
+  assert.match(candidateBlock, /windows-smoke\.cjs release-candidate/);
 });

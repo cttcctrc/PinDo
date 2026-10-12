@@ -2,6 +2,7 @@ const electron = require('electron');
 const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, screen, safeStorage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { NoteStateStore } = require('./note-state-store.cjs');
@@ -19,6 +20,7 @@ const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
 const { readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas } = require('./desktop-mode.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 const { MODE_LABELS, resolveCf07Diagnostics, relaunchArgs } = require('./cf07-diagnostics.cjs');
+const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
 
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
@@ -329,7 +331,7 @@ if (!app.requestSingleInstanceLock()) { smokeTrace('single instance denied'); ap
 else {
   smokeTrace('single instance acquired');
   app.on('second-instance', showWindow);
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     smokeTrace('Electron ready');
     readStateFile();
     smokeTrace('local state read');
@@ -362,6 +364,8 @@ else {
       event.returnValue = { accepted: true, revision: noteStore.revision };
     });
     diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), getCanvasState: () => desktopCanvas?.interactionState?.() || { active: false }, getCf07State: () => ({ enabled: cf07.enabled, mode: cf07.mode, softwareRendering: cf07.softwareRendering, dock: nativeFeatures?.dock?.diagnosticState?.() || null }), compatibility: compatibilityState });
+    const dockHostPolicy = await detectNativeDockHost({ app, platform: process.platform, osRelease: os.release() });
+    diagnostics.record('native-dock-host-policy', dockHostPolicy);
     if (cf07.enabled) diagnostics.record('cf07-session-start', { mode: cf07.mode, softwareRendering: cf07.softwareRendering, compatibilityEnabled: compatibilityState.enabled, desktopModeEnabled: desktopMode.enabled });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
@@ -465,7 +469,7 @@ else {
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {

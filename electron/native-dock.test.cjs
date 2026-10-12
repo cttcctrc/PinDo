@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { NativeDock } = require('./native-dock.cjs');
 const { MODES } = require('./cf07-diagnostics.cjs');
 
-function fixture(mode = MODES.baseline) {
+function fixture(mode = MODES.baseline, hostPolicy = null) {
   const calls = [];
   const instances = [];
   class Win {
@@ -40,7 +40,7 @@ function fixture(mode = MODES.baseline) {
       getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
       getCursorScreenPoint: () => ({ x: 0, y: 0 })
     },
-    preloadPath: '/tmp/preload.cjs', indexPath: '/tmp/index.html', diagnostic: mode, desktopHost: host
+    preloadPath: '/tmp/preload.cjs', indexPath: '/tmp/index.html', diagnostic: mode, desktopHost: host, hostPolicy
   });
   return { dock, calls, instances };
 }
@@ -53,6 +53,15 @@ test('baseline dock records its transparent Explorer-hosted window profile', asy
   await instances[0].webEvents.get('did-finish-load')();
   assert.equal(instances[0].pindoWindowProfile.host, 'explorer-desktop');
   assert.ok(calls.some(call => call[0] === 'load' && call[3].query.cf07Mode === 'baseline'));
+  instances[0].events.get('closed')();
+});
+
+test('CF-07 host policy uses the verified transparent top-level fallback without Explorer attach', async () => {
+  const { calls, instances } = fixture(MODES.baseline, { host: 'top', reason: 'win10-17763-no-transparent-compositor' });
+  assert.equal(instances[0].pindoWindowProfile.host, 'top-level');
+  assert.equal(instances[0].pindoWindowProfile.hostReason, 'win10-17763-no-transparent-compositor');
+  await instances[0].webEvents.get('did-finish-load')();
+  assert.ok(!calls.some(call => call[0] === 'host'));
   instances[0].events.get('closed')();
 });
 

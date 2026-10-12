@@ -58,7 +58,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Build installable PR test package
-        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1')
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (github.ref_name == 'fix/interaction-polish-pass-v1' || github.ref_name == 'fix/cf-07-win10-ltsc-black-background'))
         shell: pwsh
         env:
           PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.${{ github.run_number }}
@@ -66,10 +66,10 @@ jobs:
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
       - name: Re-run packaged smoke test on candidate bytes
-        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1'
+        if: github.event_name == 'workflow_dispatch' && (github.ref_name == 'fix/interaction-polish-pass-v1' || github.ref_name == 'fix/cf-07-win10-ltsc-black-background')
         run: node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
       - name: Upload installable PR test package
-        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'fix/interaction-polish-pass-v1')
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (github.ref_name == 'fix/interaction-polish-pass-v1' || github.ref_name == 'fix/cf-07-win10-ltsc-black-background'))
         uses: actions/upload-artifact@v4
         with:
           name: pindo-test-candidate-${{ github.run_number }}
