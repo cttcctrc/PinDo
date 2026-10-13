@@ -3,6 +3,7 @@ const preview = document.querySelector('#preview');
 const overflow = document.querySelector('#overflow');
 const MOTION = Object.freeze({ fast: 110, normal: 190, slow: 280 });
 const PREVIEW_CLOSE_DELAY = 180;
+const STACK_STEP = 42;
 const cf07 = new URLSearchParams(location.search);
 const CF07_PREVIEW = cf07.get('cf07Preview') || 'inline';
 let notes = [], dragging = null, uiScale = 1, previewNoteId = null, previewCloseTimer = 0;
@@ -26,7 +27,7 @@ function regions() {
 
 function clampPreviewTop(button, height) {
   const rect = button.getBoundingClientRect();
-  return Math.max(8, Math.min(rect.top + rect.height / 2 - height / 2, innerHeight - height - 8));
+  return Math.max(8, Math.min(rect.top, innerHeight - height - 8));
 }
 
 function cancelPreviewClose() { clearTimeout(previewCloseTimer); previewCloseTimer = 0; }
@@ -73,7 +74,7 @@ function beginTabSort(button, note, event) {
     if (!ghost) {
       hidePreview(); dragging = note.id; button.setPointerCapture(event.pointerId); button.classList.add('is-sorting');
       ghost = button.cloneNode(true); ghost.className = 'tab tab-sort-ghost'; ghost.style.width = `${rect.width}px`; ghost.style.left = `${rect.left}px`; document.body.appendChild(ghost);
-      placeholder = document.createElement('div'); placeholder.className = 'tab-sort-placeholder'; placeholder.style.height = `${rect.height}px`; button.after(placeholder);
+      placeholder = document.createElement('div'); placeholder.className = 'tab-sort-placeholder'; placeholder.style.height = `${rect.height}px`; button.before(placeholder); button.hidden = true;
     }
     ghost.style.top = `${Math.max(0, Math.min(innerHeight - rect.height, pointer.clientY - rect.height / 2))}px`;
     clearMarkers();
@@ -86,7 +87,7 @@ function beginTabSort(button, note, event) {
   };
   const end = pointer => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); window.removeEventListener('blur', end);
-    clearMarkers(); button.classList.remove('is-sorting'); ghost?.remove(); placeholder?.remove();
+    clearMarkers(); button.hidden = false; button.classList.remove('is-sorting'); ghost?.remove(); placeholder?.remove();
     if (button.hasPointerCapture?.(event.pointerId)) button.releasePointerCapture(event.pointerId);
     const sorted = Boolean(ghost && target && dragging && dragging !== target.dataset.noteId && pointer?.type === 'pointerup');
     if (sorted) window.pindoNative.command('dock-reorder', { id: dragging, target: target.dataset.noteId, after });
@@ -96,8 +97,9 @@ function beginTabSort(button, note, event) {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end); window.addEventListener('blur', end);
 }
 
-function tab(note) {
+function tab(note, index = 0) {
   const button = document.createElement('button'); button.className = 'tab'; button.dataset.noteId = note.id;
+  button.style.setProperty("--stack-index", index);
   button.style.setProperty('--tint', note.color || '#eee'); button.style.setProperty('--icon', note.iconColor || '#f58b56');
   const icon = document.createElement('i'); icon.innerHTML = shapes[note.icon] || shapes.dot;
   const title = document.createElement('strong'); title.textContent = note.title; button.append(icon, title);
@@ -110,12 +112,12 @@ function tab(note) {
 
 function render() {
   hidePreview(); tabs.replaceChildren(); overflow.replaceChildren(); overflow.hidden = true;
-  const limit = Math.max(1, Math.floor((innerHeight - 95 * uiScale) / (62 * uiScale)));
-  notes.slice(0, limit).forEach(note => tabs.append(tab(note)));
+  const limit = Math.max(1, Math.floor((innerHeight - 95 * uiScale) / (STACK_STEP * uiScale)));
+  notes.slice(0, limit).forEach((note, index) => tabs.append(tab(note, index)));
   if (notes.length > limit) {
     const more = document.createElement('button'); more.className = 'tab more'; more.textContent = '•••'; more.title = '更多便签';
     more.addEventListener('click', () => { overflow.hidden = !overflow.hidden; regions(); }); tabs.append(more);
-    notes.slice(limit).forEach(note => overflow.append(tab(note)));
+    notes.slice(limit).forEach((note, index) => overflow.append(tab(note, index)));
   }
   requestAnimationFrame(regions);
 }
