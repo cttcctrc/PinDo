@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
+const fs = require('node:fs');
 
 test('desktop attachment is never attempted on another OS', async () => {
   const result = await attachToWindowsDesktop({}, { platform: 'linux', run: () => { throw Error('should not run'); } });
@@ -27,4 +28,10 @@ test('reports Explorer or policy failures explicitly instead of silently claimin
   });
   assert.equal(result.attached, false);
   assert.match(result.reason, /Explorer desktop/);
+});
+
+test('native host transitions clear Win+D minimized style before reparenting', () => {
+  const source = fs.readFileSync(require.resolve('./windows-desktop-host.ps1'), 'utf8');
+  assert.match(source, /WS_MINIMIZE/);
+  assert.equal((source.match(/~WS_MINIMIZE/g) || []).length, 2);
 });

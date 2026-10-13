@@ -41,7 +41,8 @@ test('opens and closes separate windows, without creating windows for bookmarks'
   assert.equal(created[0].destroyed, undefined);
   manager.sync([note()]);
   assert.equal(created.length, 1);
-  assert.equal(created[0].visible, true);
+  // A renderer that has not finished loading must remain hidden.
+  assert.equal(created[0].visible, false);
   manager.sync([note({ mode: 'top', x: 100 })]);
   assert.equal(created.length, 2);
   assert.equal(created[0].destroyed, true);
@@ -133,4 +134,51 @@ test('activation reparents the same renderer and latest blur/focus wins after a 
  assert.equal(win.pindoPromoted,true);assert.equal(win.top,true);assert.equal(created,1);
  manager.setActive('note-1',false);assert.deepEqual(requests,[true,false]);resolveHost({attached:true});await new Promise(setImmediate);
  assert.equal(win.pindoPromoted,false);assert.equal(win.top,false);assert.equal(created,1);
+});
+
+test('a stale did-finish-load host result cannot reshow a note parked while attach was pending', async () => {
+  const { EventEmitter } = require('node:events'); let resolveHost;
+  class Win extends EventEmitter {
+    constructor(options) { super(); this.bounds = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {} }; }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; } hide() { this.visible = false; }
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: () => new Promise(resolve => { resolveHost = resolve; }) });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
+  manager.sync([note({ mode: 'bookmark' })]);
+  assert.equal(win.visible, false);
+  resolveHost({ attached: true }); await new Promise(setImmediate);
+  assert.equal(manager.modes.get('note-1'), 'bookmark');
+  assert.equal(win.visible, false); assert.equal(win.top, false);
+});
+
+test('a stale promote result cannot leave a bookmarked note visible or TopMost', async () => {
+  const { EventEmitter } = require('node:events'); const pending = [], requests = [];
+  class Win extends EventEmitter {
+    constructor(options) { super(); this.bounds = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {} }; }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; } hide() { this.visible = false; } moveTop() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: (_win, options) => { requests.push(Boolean(options.promote)); return new Promise(resolve => pending.push(resolve)); } });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
+  pending.shift()({ attached: true }); await new Promise(setImmediate);
+  manager.activate('note-1'); assert.deepEqual(requests, [false, true]);
+  manager.sync([note({ mode: 'bookmark' })]); pending.shift()({ attached: true }); await new Promise(setImmediate);
+  assert.equal(win.visible, false); assert.equal(win.top, false); assert.equal(win.pindoActive, false);
+});
+
+test('a Win+D minimize invalidates and reattaches the same desktop window without recreating it', async () => {
+  const { EventEmitter } = require('node:events'); const pending = [], requests = []; let created = 0;
+  class Win extends EventEmitter {
+    constructor(options) { super(); created++; this.bounds = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {} }; }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; } hide() { this.visible = false; } moveTop() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: (_win, options) => { requests.push(Boolean(options.promote)); return new Promise(resolve => pending.push(resolve)); } });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
+  pending.shift()({ attached: true }); await new Promise(setImmediate);
+  manager.activate('note-1'); pending.shift()({ attached: true }); await new Promise(setImmediate);
+  win.emit('minimize'); assert.equal(requests.at(-1), false);
+  pending.shift()({ attached: true }); await new Promise(setImmediate);
+  assert.equal(win.pindoPromoted, false); assert.equal(win.visible, true); assert.equal(created, 1);
 });

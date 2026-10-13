@@ -455,7 +455,10 @@ else {
     createWindow();
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
-    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
+    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled,
+      onDesktopHostError: (_id, reason) => { console.error('PinDo note desktop host failed:', reason); diagnostics.record('desktop-host-failed', { reason }); },
+      onDiagnostic: (event, detail) => diagnostics.record(event, detail)
+    });
     if (shouldUseDesktopCanvas({ enabled: desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1', compatibilityEnabled: compatibilityState.enabled })) {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },

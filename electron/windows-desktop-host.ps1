@@ -9,6 +9,7 @@ public static class PinDoDesktopHost {
     private const int GWL_STYLE = -16;
     private const long WS_CHILD = 0x40000000L;
     private const long WS_POPUP = 0x80000000L;
+    private const long WS_MINIMIZE = 0x20000000L;
     private const uint SMTO_ABORTIFHUNG = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_FRAMECHANGED = 0x0020;
@@ -50,7 +51,11 @@ public static class PinDoDesktopHost {
         if (!IsWindow(note) || !GetWindowRect(note,out rect)) throw new InvalidOperationException("Missing note");
         SetParent(note,IntPtr.Zero);
         long style=GetWindowLongPtr(note,GWL_STYLE).ToInt64();
-        SetWindowLongPtr(note,GWL_STYLE,new IntPtr((style & ~WS_CHILD) | WS_POPUP));
+        // Win+D minimizes promoted top-level notes. Carrying WS_MINIMIZE into
+        // the next host transition leaves Chromium's transparent surface in a
+        // stale/black state on Windows 10 17763, so clear it atomically while
+        // changing the native layer.
+        SetWindowLongPtr(note,GWL_STYLE,new IntPtr((style & ~WS_CHILD & ~WS_MINIMIZE) | WS_POPUP));
         if (!SetWindowPos(note,new IntPtr(-1),rect.Left,rect.Top,rect.Right-rect.Left,rect.Bottom-rect.Top,SWP_NOACTIVATE | SWP_FRAMECHANGED))
             throw new Win32Exception(Marshal.GetLastWin32Error());
         Console.WriteLine("desktop-attached");
@@ -80,7 +85,7 @@ public static class PinDoDesktopHost {
 
         IntPtr originalStyle = GetWindowLongPtr(note, GWL_STYLE);
         long style = originalStyle.ToInt64();
-        SetWindowLongPtr(note, GWL_STYLE, new IntPtr((style & ~WS_POPUP) | WS_CHILD));
+        SetWindowLongPtr(note, GWL_STYLE, new IntPtr((style & ~WS_POPUP & ~WS_MINIMIZE) | WS_CHILD));
         if (SetParent(note, host) == IntPtr.Zero && GetParent(note) != host) {
             int error = Marshal.GetLastWin32Error();
             SetWindowLongPtr(note, GWL_STYLE, originalStyle);

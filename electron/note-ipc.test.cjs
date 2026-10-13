@@ -15,10 +15,11 @@ function fixture() {
   const frame = { url: `${pathToFileURL(indexPath).href}?noteWindow=alpha` };
   const contents = { mainFrame: frame };
   const fakeWin = { webContents: contents, isDestroyed: () => false };
-  const manager = { windows: new Map([['alpha', fakeWin]]), setBounds: (id, bounds) => ({ accepted: id === 'alpha', bounds }) };
+  const diagnostics = [];
+  const manager = { windows: new Map([['alpha', fakeWin]]), setBounds: (id, bounds) => ({ accepted: id === 'alpha', bounds }), diagnostic: (...args) => diagnostics.push(args) };
   registerNoteIpc({ ipcMain, manager, store, indexPath,
     persist: serialized => writes.push(serialized), onUpdated: (...args) => notifications.push(args) });
-  return { handlers, writes, notifications, store, event: { sender: contents, senderFrame: frame } };
+  return { handlers, writes, notifications, diagnostics, store, event: { sender: contents, senderFrame: frame } };
 }
 
 test('a note window may read only its own note and update only that note', async () => {
@@ -62,4 +63,11 @@ test('native bounds changes use the verified note-window identity', () => {
   assert.equal(reply.value.accepted, true);
   const forged = {}; handlers.get('pindo:note-set-bounds')({ sender: event.sender, senderFrame: { url: 'https://evil.test' }, set returnValue(value) { forged.value = value; } }, { x: 1, y: 2, width: 3, height: 4 });
   assert.equal(forged.value.accepted, false);
+});
+
+test('renderer lifecycle diagnostics require the verified note-window identity', () => {
+  const { handlers, diagnostics, event } = fixture();
+  handlers.get('pindo:note-diagnostic')(event, 'composition-start', { editorType: 'contenteditable' });
+  handlers.get('pindo:note-diagnostic')({ sender: event.sender, senderFrame: { url: 'https://evil.test' } }, 'composition-end', {});
+  assert.deepEqual(diagnostics, [['alpha', 'composition-start', { editorType: 'contenteditable' }]]);
 });

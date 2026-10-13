@@ -236,6 +236,11 @@
   let lastDesktopState = noteWindowId ? "" : JSON.stringify(state);
   let stateRevision = Number(window.pindoDesktop?.readRevision?.() || 0);
   let noteWindowVersion = Number(state.noteWindowVersion);
+  const nativeShellKeys = window.PinDoEditorStability.shellKeys;
+  let nativeEditorElement = null, nativeCompositionDepth = 0, nativePendingSnapshot = null;
+  let nativeDraftDirty = false, nativeSaveDeferred = false;
+  const nativeDiagnostic = (name, detail = {}) => { if (noteWindowId) window.pindoNote?.diagnostic?.(name, detail); };
+  const nativeEditing = () => window.PinDoEditorStability.shouldDeferSnapshot({ noteWindowId, compositionDepth: nativeCompositionDepth, editorActive: Boolean(nativeEditorElement && document.activeElement === nativeEditorElement) });
   delete state.noteWindowVersion;
   let nativeContext = state.nativeContext || {}; delete state.nativeContext;
   if (nativeContext.settings) state.settings = nativeContext.settings;
@@ -273,8 +278,21 @@
     if (noteWindowId) {
       const note = state.notes.find(item => item.id === noteWindowId) || state.notes[0];
       if (note && Number.isSafeInteger(noteWindowVersion)) {
-        const result = window.pindoNote?.writeNote(noteWindowVersion, note);
-        if (result?.accepted) noteWindowVersion = result.current.version;
+        let result = window.pindoNote?.writeNote(noteWindowVersion, note);
+        // A cloud/main-window update may advance the canonical version while
+        // this renderer owns an active draft. Retry once with the local draft
+        // content over the latest non-editor shell fields so typing is never
+        // overwritten by a stale snapshot.
+        if (result?.reason === "conflict" && result.current?.note) {
+          const merged = window.PinDoEditorStability.mergeDraft(result.current.note, note);
+          noteWindowVersion = result.current.version;
+          result = window.pindoNote?.writeNote(noteWindowVersion, merged);
+          if (result?.accepted) Object.assign(note, result.current.note);
+        }
+        if (result?.accepted) {
+          noteWindowVersion = result.current.version; nativeDraftDirty = false;
+          nativeSaveDeferred = false; nativePendingSnapshot = null;
+        }
       }
     } else {
       const result = window.pindoDesktop?.writeState(serialized, stateRevision);
@@ -289,6 +307,8 @@
   }
   function scheduleSave(delay = 90) {
     clearTimeout(rendererSaveTimer);
+    if (noteWindowId) nativeDraftDirty = true;
+    if (noteWindowId && nativeCompositionDepth) { nativeSaveDeferred = true; return; }
     rendererSaveTimer = setTimeout(() => { rendererSaveTimer = 0; save(); }, delay);
   }
   function applyInterfaceSettings() {
@@ -546,10 +566,11 @@
     clearPersistentSelection();
     state.attachments = state.attachments.filter(link => noteById(link.parentId) && noteById(link.childId));
     state.notes.filter(note => note.mode !== "bookmark" && !attachmentByChild(note.id)).forEach(note => syncAttachedStack(note.id));
+    if (noteWindowId && noteLayer.firstElementChild) nativeDiagnostic("editor-unmounted", { reason: "render-replace" });
     noteLayer.replaceChildren(); bookmarkDock.replaceChildren();
     if (noteWindowId) {
       const note = state.notes.find(item => item.id === noteWindowId) || state.notes[0];
-      if (note && note.mode !== "bookmark") renderNote(note);
+      if (note && note.mode !== "bookmark") { renderNote(note); nativeDiagnostic("editor-mounted", { editorType: note.type, reason: "render" }); }
       if (persist) save();
       return;
     }
@@ -809,6 +830,7 @@
       if (isField) element.readOnly = false;
       else element.contentEditable = "true";
       element.classList.add("is-editing");
+      nativeEditorElement = element;
       if (noteWindowId) void window.pindoNative.command("focus-note");
       requestAnimationFrame(() => {
         element.focus();
@@ -816,9 +838,14 @@
       });
     };
     const deactivate = () => {
+      const wasEditing = nativeEditorElement === element || element.classList.contains("is-editing");
       if (isField) element.readOnly = true;
       else element.contentEditable = "false";
       element.classList.remove("is-editing");
+      if (nativeEditorElement === element) nativeEditorElement = null;
+      if (nativeCompositionDepth) { nativeCompositionDepth = 0; nativeDiagnostic("composition-end", { reason: "editor-blur" }); }
+      if (noteWindowId && wasEditing && (nativeDraftDirty || nativeSaveDeferred)) save();
+      if (noteWindowId && wasEditing && nativePendingSnapshot) queueMicrotask(refreshNativeNote);
     };
     deactivate();
     if (!isField && !element.matches(".quick-editor")) element.addEventListener("paste", event => {
@@ -826,6 +853,8 @@
     });
     element.addEventListener("dblclick", activate);
     element.addEventListener("blur", deactivate);
+    element.addEventListener("compositionstart", () => { nativeCompositionDepth++; clearTimeout(rendererSaveTimer); rendererSaveTimer = 0; nativeDiagnostic("composition-start", { editorType: element.matches("input,textarea") ? "field" : "contenteditable" }); });
+    element.addEventListener("compositionend", () => { nativeCompositionDepth = Math.max(0, nativeCompositionDepth - 1); nativeDiagnostic("composition-end", { editorType: element.matches("input,textarea") ? "field" : "contenteditable" }); if (!nativeCompositionDepth && (nativeDraftDirty || nativeSaveDeferred)) scheduleSave(); });
     element.addEventListener("keydown", event => {
       if (event.key === "Escape") { event.preventDefault(); element.blur(); }
     });
@@ -1281,14 +1310,21 @@
   function applyNativeSnapshot(snapshot) {
     if (!snapshot?.note || snapshot.note.id !== noteWindowId) return;
     const existing = noteById(noteWindowId);
-    const content = n => JSON.stringify(Object.fromEntries(Object.entries(n || {}).filter(([key]) => !["x","y","w","h","z","locked","mode","pinEnabled"].includes(key))));
+    const content = n => JSON.stringify(Object.fromEntries(Object.entries(n || {}).filter(([key]) => !nativeShellKeys.includes(key))));
     const contextChanged = JSON.stringify(nativeContext) !== JSON.stringify(snapshot.context || {});
     const shellChanged = existing && ["locked","mode","pinEnabled"].some(key => existing[key] !== snapshot.note[key]);
     const sameContent = existing && content(existing) === content(snapshot.note);
     noteWindowVersion = snapshot.version; nativeContext = snapshot.context || {};
     if (nativeContext.settings) { state.settings = nativeContext.settings; applyInterfaceSettings(); }
+    if (nativeEditing()) {
+      nativePendingSnapshot = snapshot;
+      nativeShellKeys.forEach(key => { if (existing) existing[key] = snapshot.note[key]; });
+      // Geometry/mode remain authoritative in the main process. Do not replace
+      // the editor DOM (and therefore caret/IME state) during an active draft.
+      return;
+    }
     if (sameContent) {
-      ["x","y","w","h","z","locked","mode","pinEnabled"].forEach(key => existing[key] = snapshot.note[key]);
+      nativeShellKeys.forEach(key => existing[key] = snapshot.note[key]);
       if (contextChanged || shellChanged) render(false);
     } else { state.notes = [snapshot.note]; render(false); }
   }

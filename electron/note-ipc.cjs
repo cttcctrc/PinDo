@@ -41,6 +41,10 @@ function registerNoteIpc({ ipcMain, manager, store, getStore = () => store, inde
     const id = identity(event);
     event.returnValue = id ? manager.setBounds(id, bounds) : { accepted: false, reason: 'unauthorized' };
   });
+  ipcMain.on('pindo:note-diagnostic', (event, name, detail) => {
+    const id = identity(event);
+    if (id) manager.diagnostic?.(id, name, detail);
+  });
   return identity;
 }
 

@@ -43,7 +43,8 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
 contextBridge.exposeInMainWorld('pindoNote', Object.freeze({
   readNote: () => ipcRenderer.sendSync('pindo:note-snapshot'),
   writeNote: (version, note) => ipcRenderer.sendSync('pindo:note-update', version, note),
-  setBounds: bounds => ipcRenderer.sendSync('pindo:note-set-bounds', bounds)
+  setBounds: bounds => ipcRenderer.sendSync('pindo:note-set-bounds', bounds),
+  diagnostic: (name, detail) => ipcRenderer.send('pindo:note-diagnostic', name, detail)
 }));
 
 contextBridge.exposeInMainWorld("pindoWindow", Object.freeze({
