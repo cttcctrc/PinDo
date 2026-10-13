@@ -63,7 +63,24 @@ test('IP-07 native dock sorting is pointer driven, vertical only and persists th
   assert.match(dock, /event\.clientY/);
   assert.match(dock, /dock-reorder/);
   assert.match(dockStyles, /\.tab-sort-placeholder/);
+});test('IP-STACK-01 dock cards overlap as a vertical stack and lift without delaying pointer input', () => {
+  assert.match(dock, /const STACK_STEP = 42/);
+  assert.match(dock, /button\.style\.setProperty\("--stack-index"/);
+  assert.match(dockStyles, /\.tab \+ \.tab[^{]*\{[^}]*margin-top:calc\(-10px \* var\(--scale\)\)/);
+  assert.match(dockStyles, /\.tab:hover[^{]*\{[^}]*translateX\(-8px\)[^}]*translateY\(-2px\)/);
+  assert.doesNotMatch(dockStyles, /\.tab:hover[^{]*\{[^}]*transition-delay/);
 });
+
+
+test('IP-STACK-01 preview top follows the hovered tab and drag replaces the source with one placeholder', () => {
+  assert.match(dock, /return Math\.max\(8, Math\.min\(rect\.top, innerHeight - height - 8\)\)/);
+  assert.match(dock, /button\.before\(placeholder\); button\.hidden = true/);
+  assert.match(dock, /button\.hidden = false/);
+  assert.doesNotMatch(dock, /button\.after\(placeholder\)/);
+});
+
+
+
 
 test('IP-08 dock preview opens left with hover corridor and viewport clamping', () => {
   assert.match(dock, /PREVIEW_CLOSE_DELAY/);
@@ -100,4 +117,15 @@ test('IP-12 note highlight primitive is reusable and does not focus or move note
   assert.match(app, /window\.pindoInteraction = Object\.freeze\(\{ highlightNote \}\)/);
   assert.match(styles, /\.note\.is-highlighted/);
   assert.doesNotMatch(app, /function highlightNote\(noteId[\s\S]{0,500}\.focus\(/);
+});
+
+
+
+test('IP-HIGHLIGHT-01 locate feedback is a double soft wiggle with a neutral soft focus', () => {
+  assert.match(app, /pindo-locate-feedback/);
+  assert.match(styles, /\.todo-row\.pindo-locate-feedback,\.timeline-row\.pindo-locate-feedback/);
+  assert.match(styles, /animation:pindoLocateWiggle var\(--motion-slow\)[^;]* 2/);
+  assert.match(styles, /@keyframes pindoLocateWiggle/);
+  assert.match(styles, /background:rgba\(78,126,225,/);
+  assert.doesNotMatch(styles, /pindoAttention/);
 });
