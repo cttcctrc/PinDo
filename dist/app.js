@@ -2436,8 +2436,8 @@
       const id = CSS.escape(String(detail?.id || ""));
       const selector = detail?.type === "timeline" ? `[data-event-id="${id}"]` : detail?.type === "todo" ? `[data-todo="${id}"]` : "";
       const row = selector && noteLayer.querySelector(selector); if (!row) return;
-      row.scrollIntoView({block:"center",behavior:"smooth"});row.classList.remove("pindo-attention");void row.offsetWidth;row.classList.add("pindo-attention");
-      setTimeout(()=>row.classList.remove("pindo-attention"),1500);
+      row.scrollIntoView({block:"center",behavior:"smooth"});row.classList.remove("pindo-locate-feedback");void row.offsetWidth;row.classList.add("pindo-locate-feedback");
+      setTimeout(()=>row.classList.remove("pindo-locate-feedback"),MOTION.slow*2+80);
     });
   }
   if (!noteWindowId) {
