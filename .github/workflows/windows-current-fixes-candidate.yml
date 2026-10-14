@@ -30,7 +30,7 @@ jobs:
       - name: Build installable candidate without publishing
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.43
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.44
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
@@ -39,7 +39,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pindo-stability-rc43-${{ github.run_number }}
+          name: pindo-stability-rc44-${{ github.run_number }}
           path: |
             release-candidate/*.exe
             release-candidate/*.blockmap

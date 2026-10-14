@@ -75,10 +75,10 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     const kind=role(event);if(!kind)return {error:'unauthorized'};
     const id=kind==='canvas' && typeof value?.noteId==='string' ? value.noteId : noteIdentity(event), store=getStore();
     if(action==='focus-control' && kind==='control'){mainWindow.moveTop();return true;}
-    if(action==='focus-note' && kind==='note'){manager.activate?.(id);manager.windows.get(id)?.moveTop();return true;}
+    if(action==='focus-note' && kind==='note'){manager.activate?.(id);return true;}
     if(action==='focus-note-item' && kind==='control'){
       const win=manager.windows.get(value?.noteId);if(!win||win.isDestroyed())return false;
-      manager.activate?.(value.noteId);win.moveTop();win.webContents.send('pindo:highlight-item',{type:value.type,id:value.itemId});return true;
+      manager.activate?.(value.noteId);if(manager.modes.get(value.noteId)==='top')win.moveTop();win.webContents.send('pindo:highlight-item',{type:value.type,id:value.itemId});return true;
     }
     if(action==='dock-regions' && kind==='dock'){dock.hit.update(value);return true;}
     if(action==='dock-list' && kind==='dock'){return dock.cards || [];}

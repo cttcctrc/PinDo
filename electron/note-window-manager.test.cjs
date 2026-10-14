@@ -121,7 +121,7 @@ test('native bounds updates are clamped to the active display and reject malform
   assert.equal(manager.setBounds('note-1', { x: Number.NaN, y: 0, width: 300, height: 220 }).accepted, false);
 });
 
-test('activation reparents the same renderer and latest blur/focus wins after a slow host call',async()=>{
+test('desktop activation keeps the renderer attached to Explorer across focus and blur',async()=>{
  const {EventEmitter}=require('node:events');let created=0,resolveHost;const requests=[];
  class Win extends EventEmitter{
   constructor(options){super();created++;this.bounds=options;this.webContents={setWindowOpenHandler(){},on(){},once(){},send(){}};}
@@ -130,10 +130,10 @@ test('activation reparents the same renderer and latest blur/focus wins after a 
  const manager=new NoteWindowManager({BrowserWindow:Win,screen:{getAllDisplays:()=>displays},indexPath:'/tmp/index.html',preloadPath:'/tmp/preload.cjs',desktopHost:(_w,options)=>{requests.push(options.promote);return new Promise(r=>resolveHost=r);}});
  manager.sync([note()]);const win=manager.windows.get('note-1');
  manager.activate('note-1');manager.setActive('note-1',false);manager.activate('note-1');
- assert.deepEqual(requests,[true]);resolveHost({attached:true});await new Promise(setImmediate);
- assert.equal(win.pindoPromoted,true);assert.equal(win.top,true);assert.equal(created,1);
- manager.setActive('note-1',false);assert.deepEqual(requests,[true,false]);resolveHost({attached:true});await new Promise(setImmediate);
+ assert.deepEqual(requests,[false]);resolveHost({attached:true});await new Promise(setImmediate);
  assert.equal(win.pindoPromoted,false);assert.equal(win.top,false);assert.equal(created,1);
+ manager.setActive('note-1',false);manager.activate('note-1');
+ assert.deepEqual(requests,[false]);assert.equal(win.raised,undefined);assert.equal(created,1);
 });
 
 test('a stale did-finish-load host result cannot reshow a note parked while attach was pending', async () => {
@@ -152,7 +152,7 @@ test('a stale did-finish-load host result cannot reshow a note parked while atta
   assert.equal(win.visible, false); assert.equal(win.top, false);
 });
 
-test('a stale promote result cannot leave a bookmarked note visible or TopMost', async () => {
+test('activation cannot promote a desktop note while a pending attach becomes parked', async () => {
   const { EventEmitter } = require('node:events'); const pending = [], requests = [];
   class Win extends EventEmitter {
     constructor(options) { super(); this.bounds = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {} }; }
@@ -161,8 +161,7 @@ test('a stale promote result cannot leave a bookmarked note visible or TopMost',
   }
   const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: (_win, options) => { requests.push(Boolean(options.promote)); return new Promise(resolve => pending.push(resolve)); } });
   manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
-  pending.shift()({ attached: true }); await new Promise(setImmediate);
-  manager.activate('note-1'); assert.deepEqual(requests, [false, true]);
+  assert.deepEqual(requests, [false]); manager.activate('note-1'); assert.deepEqual(requests, [false]);
   manager.sync([note({ mode: 'bookmark' })]); pending.shift()({ attached: true }); await new Promise(setImmediate);
   assert.equal(win.visible, false); assert.equal(win.top, false); assert.equal(win.pindoActive, false);
 });
@@ -177,8 +176,31 @@ test('a Win+D minimize invalidates and reattaches the same desktop window withou
   const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: (_win, options) => { requests.push(Boolean(options.promote)); return new Promise(resolve => pending.push(resolve)); } });
   manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
   pending.shift()({ attached: true }); await new Promise(setImmediate);
-  manager.activate('note-1'); pending.shift()({ attached: true }); await new Promise(setImmediate);
   win.emit('minimize'); assert.equal(requests.at(-1), false);
   pending.shift()({ attached: true }); await new Promise(setImmediate);
   assert.equal(win.pindoPromoted, false); assert.equal(win.visible, true); assert.equal(created, 1);
+});
+
+test('records native lifecycle messages without changing desktop window state', () => {
+  const { EventEmitter } = require('node:events'); const events = [];
+  class Win extends EventEmitter {
+    constructor(options) {
+      super(); this.bounds = options; this.hooks = new Map();
+      this.webContents = { setWindowOpenHandler() {}, on() {}, once() {}, send() {} };
+    }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; }
+    hookWindowMessage(message, callback) { this.hooks.set(message, callback); }
+  }
+  const manager = new NoteWindowManager({
+    BrowserWindow: Win, screen: { getAllDisplays: () => displays },
+    indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs',
+    onDiagnostic: (event, detail) => events.push({ event, detail })
+  });
+  manager.sync([note()]); const win = manager.windows.get('note-1');
+  win.hooks.get(0x0018)(Buffer.alloc(8));
+  const size = Buffer.alloc(8); size.writeBigUInt64LE(1n); win.hooks.get(0x0005)(size);
+  const lifecycle = events.filter(entry => entry.event === 'native-window-message');
+  assert.deepEqual(lifecycle.map(entry => [entry.detail.reason, entry.detail.wParam]), [['wm-showwindow', 0], ['wm-size', 1]]);
+  assert.equal(win.pindoPromoted, false); assert.equal(win.pindoActive, undefined);
 });

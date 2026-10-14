@@ -31,6 +31,13 @@ function nativeNoteView(note, displays) {
   };
 }
 
+function nativeMessageValue(value) {
+  if (!Buffer.isBuffer(value)) return Number.isFinite(Number(value)) ? Number(value) : null;
+  if (value.length >= 8) return Number(value.readBigUInt64LE(0));
+  if (value.length >= 4) return value.readUInt32LE(0);
+  return null;
+}
+
 /** Owns only native windows, never the note contents or local data file. */
 class NoteWindowManager {
   constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, onClosed = () => {}, onDesktopHostError = () => {}, onDiagnostic = () => {}, desktopHost = attachToWindowsDesktop }) {
@@ -122,7 +129,11 @@ class NoteWindowManager {
     if (mode === 'top') this._setTop(id, win, true, reason);
     if (!win.pindoReady) return;
     if (mode === 'desktop') {
-      const desired = Boolean(win.pindoActive);
+      // Desktop notes stay inside Explorer while they are edited. Promoting a
+      // transparent Chromium child to a Top-Level window on every focus, then
+      // parenting it back on blur, visibly tears the surface on LTSC 17763.
+      // `top` mode is the explicit authority for a Top-Level note.
+      const desired = false;
       if (!win.pindoHostFailed && (win.pindoLayerBusy || win.pindoHostInvalidated || win.pindoPromoted !== desired)) {
         this._requestLayer(id, desired, `${reason}:visibility`);
         return;
@@ -133,7 +144,7 @@ class NoteWindowManager {
       win.pindoParked = false; win.pindoParkedAt = 0;
       this._record(id, win, 'note-unparked', reason, before);
     }
-    this._setTop(id, win, mode === 'top' || Boolean(win.pindoActive), reason);
+    this._setTop(id, win, mode === 'top', reason);
     this._show(id, win, reason);
   }
 
@@ -222,6 +233,23 @@ class NoteWindowManager {
       this._record(id, win, 'window-minimized', 'show-desktop-or-system', before);
       void this._requestLayer(id, false, 'window-minimized', true);
     });
+    if (typeof win.hookWindowMessage === 'function') {
+      const messages = new Map([
+        [0x0018, 'wm-showwindow'],
+        [0x0005, 'wm-size'],
+        [0x001a, 'wm-settingchange'],
+        [0x007e, 'wm-displaychange'],
+        [0x007d, 'wm-stylechanged'],
+        [0x031e, 'wm-dwmcompositionchanged']
+      ]);
+      for (const [message, reason] of messages) win.hookWindowMessage(message, wParam => {
+        this._record(id, win, 'native-window-message', reason, this._snapshot(id, win), {
+          message: `0x${message.toString(16).padStart(4, '0')}`,
+          wParam: nativeMessageValue(wParam)
+        });
+      });
+    }
+    win.on('restore', () => this._record(id, win, 'window-restored', 'native-event', this._snapshot(id, win)));
     win.on('closed', () => {
       if (!win.pindoDestroyRecorded) this._record(id, win, 'window-destroyed', 'native-event', this._snapshot(id, win));
       if (this.windows.get(id) === win) this.windows.delete(id);
@@ -232,7 +260,7 @@ class NoteWindowManager {
       if (win.isDestroyed() || this.windows.get(id) !== win) return;
       win.pindoReady = true;
       this._record(id, win, 'renderer-loaded', 'did-finish-load', null);
-      if (this.modes.get(id) === 'desktop') void this._requestLayer(id, Boolean(win.pindoActive), 'renderer-ready', true);
+      if (this.modes.get(id) === 'desktop') void this._requestLayer(id, false, 'renderer-ready', true);
       else this._applyVisibility(id, 'renderer-ready');
     });
     return win;
@@ -284,24 +312,31 @@ class NoteWindowManager {
     if (!selected || selected.isDestroyed() || this.modes.get(id) === 'bookmark') return;
     if(selected.pindoNoteType==='organizer'){
       this.setActive(id, false, reason);
-      if(!selected.isFocused?.())selected.focus?.();
-      selected.webContents.focus?.(); selected.moveTop?.();
+      if(!selected.isFocused?.()) { selected.focus?.(); selected.webContents.focus?.(); }
       return;
     }
+    if (selected.pindoActive && (this.modes.get(id) !== 'desktop' || (!selected.pindoHostInvalidated && !selected.pindoPromoted))) return;
     for (const [other, win] of this.windows) if (other !== id && win.pindoActive) this.setActive(other, false, 'activate-other');
-    this.setActive(id, true, reason); selected.moveTop?.();
+    this.setActive(id, true, reason);
   }
 
   setActive(id, active, reason = 'set-active') {
     const win = this.windows.get(id);
     if (!win || win.isDestroyed() || this.modes.get(id) === 'bookmark') return;
     if (win.pindoNoteType === 'organizer') active = false;
+    active = Boolean(active);
+    if (win.pindoActive === active) {
+      if (this.modes.get(id) === 'desktop' && (win.pindoHostInvalidated || win.pindoPromoted)) void this._requestLayer(id, false, `${reason}:reconcile`);
+      return;
+    }
     const before = this._snapshot(id, win);
-    win.pindoActive = Boolean(active);
+    win.pindoActive = active;
     win.pindoHostFailed = false;
     this._record(id, win, 'active-changed', reason, before);
     if (this.modes.get(id) !== 'desktop') { this._setTop(id, win, true, reason); return; }
-    void this._requestLayer(id, Boolean(active), reason);
+    win.pindoLayerDesired = false;
+    this._setTop(id, win, false, reason);
+    if (win.pindoHostInvalidated || win.pindoPromoted) void this._requestLayer(id, false, reason);
   }
 
   setBounds(id, bounds) {
