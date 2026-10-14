@@ -1,0 +1,81 @@
+name: Publish PinDo stability rc.44 once
+
+on:
+  push:
+    branches: [fix/pindo-ux-org-01]
+    paths: [.github/workflows/publish-stability-rc44-once.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REPOSITORY: cttcctrc/PinDo
+      VALIDATED_RUN_ID: "38528394476"
+      VALIDATED_SHA: 0c6b619e98244159cdd80b486661e11c142cd76a
+      ARTIFACT_NAME: pindo-stability-rc44-6
+      TAG: v1.1.0-test.75.44
+      VERSION: 1.1.0-beta.7.5-rc.44
+      EXE_SHA256: fe26710869317f68b764e7c8ba10e20ec899dd6ee60f7de225a65735ba156c99
+      BLOCKMAP_SHA256: 5b3e33e6d30f6e65ababc0b903bdf179c48daa1d9660e5c9838855a215c1f704
+      METADATA_SHA256: dfcc37ee164389e07087211ba43492a8f0d170c6763a982926d3940a9e8143f2
+    steps:
+      - name: Download exact validated candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$VALIDATED_RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT_NAME" --dir candidate
+
+      - name: Verify commit, bytes and update metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .head_sha)" = "$VALIDATED_SHA"
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          blockmap="$exe.blockmap"
+          metadata="candidate/release-candidate/test.yml"
+          test -f "$exe" && test -f "$blockmap" && test -f "$metadata"
+          echo "$EXE_SHA256  $exe" | sha256sum --check --strict
+          echo "$BLOCKMAP_SHA256  $blockmap" | sha256sum --check --strict
+          echo "$METADATA_SHA256  $metadata" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" "$metadata"
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
+
+      - name: Publish exact bytes to test channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to create a duplicate."
+            exit 1
+          fi
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          gh release create "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml \
+            --repo "$REPOSITORY" \
+            --target "$VALIDATED_SHA" \
+            --prerelease \
+            --title "PinDo $VERSION stability candidate" \
+            --notes "Windows CI, packaged smoke and update-artifact validation passed. This candidate addresses click/window-switch flicker and adds Win+D native lifecycle diagnostics. Test channel only; CF-08 remains under investigation."
+
+      - name: Verify published test-channel metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
+          test "$(jq -r .draft <<<"$release")" = false
+          test "$(jq -r .prerelease <<<"$release")" = true
+          test "$(jq -r .target_commitish <<<"$release")" = "$VALIDATED_SHA"
+          test "$(jq '.assets | length' <<<"$release")" -eq 3
+          curl --fail --silent --show-error --location \
+            "https://github.com/$REPOSITORY/releases/download/$TAG/test.yml" \
+            --output published-test.yml
+          echo "$METADATA_SHA256  published-test.yml" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" published-test.yml
