@@ -1,0 +1,81 @@
+name: Publish PinDo opaque diagnostic rc.47 once
+
+on:
+  push:
+    branches: [fix/pindo-ux-org-01]
+    paths: [.github/workflows/publish-opaque-diagnostic-rc47-once.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REPOSITORY: cttcctrc/PinDo
+      VALIDATED_RUN_ID: "38721879125"
+      VALIDATED_SHA: 84ee0ca7e0373ec7df14aa7513876b176c5da543
+      ARTIFACT_NAME: pindo-opaque-diagnostic-rc47-12
+      TAG: v1.1.0-test.75.47-diag
+      VERSION: 1.1.0-beta.7.5-rc.47-diag
+      EXE_SHA256: 3c464bba1571c7ddbeac6559e87403ad1abfc850246bcbe029fc5fc7b1291c5e
+      BLOCKMAP_SHA256: d033d92a6d37f70711130e5badb2d10e34bae62688ff54e13ce1b0e684eec954
+      METADATA_SHA256: 9a7743ba66227143e52f928f178daca1ea4c8235340308c83547c5c931ee25a6
+    steps:
+      - name: Download exact validated candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$VALIDATED_RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT_NAME" --dir candidate
+
+      - name: Verify commit, bytes and update metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .head_sha)" = "$VALIDATED_SHA"
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          blockmap="$exe.blockmap"
+          metadata="candidate/release-candidate/test.yml"
+          test -f "$exe" && test -f "$blockmap" && test -f "$metadata"
+          echo "$EXE_SHA256  $exe" | sha256sum --check --strict
+          echo "$BLOCKMAP_SHA256  $blockmap" | sha256sum --check --strict
+          echo "$METADATA_SHA256  $metadata" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" "$metadata"
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
+
+      - name: Publish exact bytes to test channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to create a duplicate."
+            exit 1
+          fi
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          gh release create "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml \
+            --repo "$REPOSITORY" \
+            --target "$VALIDATED_SHA" \
+            --prerelease \
+            --title "PinDo $VERSION opaque diagnostic candidate" \
+            --notes "Diagnostic-only test candidate. Desktop note windows and the native dock use opaque BrowserWindow surfaces while preserving their resolved host and lifecycle behavior. Win+D recovery records aggregate capture statistics only; no screenshots or note text are saved. Not a production fix; Owner real-machine diagnosis remains pending."
+
+      - name: Verify published test-channel metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
+          test "$(jq -r .draft <<<"$release")" = false
+          test "$(jq -r .prerelease <<<"$release")" = true
+          test "$(jq -r .target_commitish <<<"$release")" = "$VALIDATED_SHA"
+          test "$(jq '.assets | length' <<<"$release")" -eq 3
+          curl --fail --silent --show-error --location \
+            "https://github.com/$REPOSITORY/releases/download/$TAG/test.yml" \
+            --output published-test.yml
+          echo "$METADATA_SHA256  published-test.yml" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" published-test.yml
