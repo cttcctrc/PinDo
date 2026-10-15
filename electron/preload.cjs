@@ -1,5 +1,17 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+// Diagnostic-only listener in packaged candidates. The main process ignores
+// this channel unless the surface continuity experiment is enabled. It sends
+// only the Page Visibility state; no document or input content is collected.
+function reportSurfaceVisibility(reason) {
+  ipcRenderer.send('pindo:surface-visibility', {
+    state: document.visibilityState,
+    reason
+  });
+}
+window.addEventListener('DOMContentLoaded', () => reportSurfaceVisibility('dom-content-loaded'), { once: true });
+document.addEventListener('visibilitychange', () => reportSurfaceVisibility('visibility-change'));
+
 contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   setControlRegions: regions => ipcRenderer.send('pindo:control-regions', regions),
   setCanvasRegions: regions => ipcRenderer.send('pindo:canvas-regions', regions),

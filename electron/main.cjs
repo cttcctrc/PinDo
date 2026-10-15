@@ -25,6 +25,7 @@ const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
 const opaqueDiagnostic = packageMetadata.opaqueWindowDiagnostic === true;
+const surfaceContinuityDiagnostic = packageMetadata.surfaceContinuityDiagnostic === true;
 const cf07 = resolveCf07Diagnostics({ enabled: packageMetadata.cf07Diagnostics === true, softwareRendering: packageMetadata.cf07SoftwareRendering === true });
 if (cf07.softwareRendering) app.disableHardwareAcceleration();
 app.setName(cf07.enabled ? 'PinDo CF-07 Diagnostics' : canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
@@ -368,6 +369,21 @@ else {
     const dockHostPolicy = await detectNativeDockHost({ app, platform: process.platform, osRelease: os.release() });
     diagnostics.record('native-dock-host-policy', dockHostPolicy);
     if (opaqueDiagnostic) diagnostics.record('opaque-window-diagnostic-start', { notesTransparent: false, dockTransparent: false, capturesPersisted: false });
+    if (surfaceContinuityDiagnostic) diagnostics.record('surface-continuity-diagnostic-start', { notesTransparent: true, dockTransparent: true, backgroundThrottling: false, nativeOcclusionOverride: false, capturesPersisted: false });
+    ipcMain.on('pindo:surface-visibility', (event, value) => {
+      if (!surfaceContinuityDiagnostic || event.senderFrame !== event.sender.mainFrame) return;
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const profile = win?.pindoWindowProfile;
+      if (!win || !profile || !['native-note', 'native-dock'].includes(profile.role)) return;
+      const state = value?.state;
+      if (!['visible', 'hidden'].includes(state)) return;
+      let noteId = null;
+      if (profile.role === 'native-note' && noteWindowManager) {
+        const entry = [...noteWindowManager.windows.entries()].find(([, candidate]) => candidate === win);
+        if (entry) noteId = noteWindowManager.anonymousId(entry[0]);
+      }
+      diagnostics.record('surface-visibility-changed', { windowId: win.id, role: profile.role, noteId, state, reason: value?.reason === 'visibility-change' ? 'visibility-change' : 'dom-content-loaded', transparent: profile.transparent, host: profile.host, backgroundThrottling: profile.backgroundThrottling });
+    });
     if (cf07.enabled) diagnostics.record('cf07-session-start', { mode: cf07.mode, softwareRendering: cf07.softwareRendering, compatibilityEnabled: compatibilityState.enabled, desktopModeEnabled: desktopMode.enabled });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
@@ -457,7 +473,7 @@ else {
     createWindow();
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
-    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, opaqueDiagnostic,
+    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, opaqueDiagnostic, surfaceContinuityDiagnostic,
       onDesktopHostError: (_id, reason) => { console.error('PinDo note desktop host failed:', reason); diagnostics.record('desktop-host-failed', { reason }); },
       onDiagnostic: (event, detail) => diagnostics.record(event, detail)
     });
@@ -474,7 +490,7 @@ else {
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,opaqueDiagnostic,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,opaqueDiagnostic,surfaceContinuityDiagnostic,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {

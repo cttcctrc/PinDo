@@ -30,6 +30,20 @@ test('opaque diagnostic changes only the native surface profile', () => {
   assert.equal(created[0].pindoWindowProfile.host, 'pending');
 });
 
+test('surface continuity diagnostic preserves transparency and disables renderer throttling', () => {
+  const created = [];
+  class FakeWindow {
+    constructor(options) { this.options = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
+    on() {} loadFile() {} isDestroyed() { return false; } setAlwaysOnTop() {} showInactive() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', surfaceContinuityDiagnostic: true });
+  manager.sync([note()]);
+  assert.equal(created[0].options.transparent, true);
+  assert.equal(created[0].options.backgroundColor, '#00000000');
+  assert.equal(created[0].options.webPreferences.backgroundThrottling, false);
+  assert.equal(created[0].pindoWindowProfile.diagnostic, 'surface-continuity');
+});
+
 test('opens and closes separate windows, without creating windows for bookmarks', () => {
   const created = [];
   class FakeWindow {
