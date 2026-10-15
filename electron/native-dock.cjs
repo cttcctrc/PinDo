@@ -1,16 +1,27 @@
 const path = require('node:path');
 const { createControlHitTest } = require('./control-pointer.cjs');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
+const { captureWindowSurface } = require('./surface-capture-diagnostics.cjs');
 class NativeDock {
-  constructor({ BrowserWindow, screen, preloadPath, indexPath, diagnostic = null, desktopHost = attachToWindowsDesktop, hostPolicy = null, onDiagnostic = () => {} }) {
-    this.screen=screen;this.indexPath=indexPath;this.preloadPath=preloadPath;this.diagnostic=diagnostic || {mode:'baseline',preview:'inline',canvasVisible:true,dockVisible:true,dock:{transparent:true,backgroundColor:'#00000000',host:'desktop'}};this.desktopHost=desktopHost;this.onDiagnostic=onDiagnostic;
+  constructor({ BrowserWindow, screen, preloadPath, indexPath, diagnostic = null, opaqueDiagnostic = false, desktopHost = attachToWindowsDesktop, hostPolicy = null, onDiagnostic = () => {}, surfaceCapture = captureWindowSurface }) {
+    this.screen=screen;this.indexPath=indexPath;this.preloadPath=preloadPath;this.diagnostic=diagnostic || {mode:'baseline',preview:'inline',canvasVisible:true,dockVisible:true,dock:{transparent:true,backgroundColor:'#00000000',host:'desktop'}};this.desktopHost=desktopHost;this.onDiagnostic=onDiagnostic;this.opaqueDiagnostic=Boolean(opaqueDiagnostic);this.surfaceCapture=surfaceCapture;
     const requestedProfile=this.diagnostic.dock || {transparent:true,backgroundColor:'#00000000',host:'desktop'};
-    const dockProfile=hostPolicy?.host==='top' && this.diagnostic.mode==='baseline' ? {...requestedProfile,host:'top'} : requestedProfile;
+    const hostProfile=hostPolicy?.host==='top' && this.diagnostic.mode==='baseline' ? {...requestedProfile,host:'top'} : requestedProfile;
+    const dockProfile=this.opaqueDiagnostic ? {...hostProfile,transparent:false,backgroundColor:'#fff7ed'} : hostProfile;
     this.window=new BrowserWindow({width:430,height:700,frame:false,transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',show:false,resizable:false,skipTaskbar:true,alwaysOnTop:false,webPreferences:{preload:preloadPath,contextIsolation:true,sandbox:true,nodeIntegration:false}});
-    this.window.pindoWindowProfile={role:'native-dock',transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',host:dockProfile.host==='top'?'top-level':'desktop-pending',hostReason:hostPolicy?.reason || null};
+    this.window.pindoWindowProfile={role:'native-dock',transparent:dockProfile.transparent!==false,backgroundColor:dockProfile.backgroundColor || '#00000000',host:dockProfile.host==='top'?'top-level':'desktop-pending',hostReason:hostPolicy?.reason || null,diagnostic:this.opaqueDiagnostic?'opaque-window':null};
     this.hit=createControlHitTest(this.window,screen);
     this.window.webContents.setWindowOpenHandler(() => ({action:'deny'}));
     this.window.webContents.on('will-navigate', e=>e.preventDefault());
+    if(this.opaqueDiagnostic&&typeof this.window.hookWindowMessage==='function'){
+      this.window.hookWindowMessage(0x0018,(wParam)=>{
+        const shown=Buffer.isBuffer(wParam)?(wParam.length>=8?Number(wParam.readBigUInt64LE(0)):wParam.readUInt32LE(0)):Number(wParam);
+        if(shown===0){this.surfaceHidden=true;return;}
+        if(shown!==1||!this.surfaceHidden||this.surfaceCapturePending)return;
+        this.surfaceHidden=false;this.surfaceCapturePending=true;
+        void this.surfaceCapture(this.window).then(sample=>this.onDiagnostic('surface-capture-sampled',{windowId:this.window.id,role:'native-dock',reason:'wm-showwindow-restored',...sample})).catch(error=>this.onDiagnostic('surface-capture-failed',{windowId:this.window.id,role:'native-dock',reason:'wm-showwindow-restored',error:String(error?.message||error).slice(0,160)})).finally(()=>{this.surfaceCapturePending=false;});
+      });
+    }
     this.window.loadFile(path.join(path.dirname(indexPath),'native-dock.html'),{query:{cf07Mode:this.diagnostic.mode || 'baseline',cf07Preview:this.diagnostic.preview || 'inline'}});
     this.window.webContents.on('did-finish-load',async()=>{
       if(dockProfile.host==='desktop'){

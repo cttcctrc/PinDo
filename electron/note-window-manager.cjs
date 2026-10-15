@@ -3,6 +3,7 @@ const { pathToFileURL } = require('node:url');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
 const { WindowsSurfaceRecovery } = require('./windows-surface-recovery.cjs');
 const { partitionNotes } = require('./canvas-note-routing.cjs');
+const { captureWindowSurface } = require('./surface-capture-diagnostics.cjs');
 
 const VALID_MODES = new Set(['desktop', 'top', 'bookmark']);
 const VALID_TYPES = new Set(['quick', 'todo', 'timeline', 'organizer']);
@@ -41,12 +42,13 @@ function nativeMessageValue(value) {
 
 /** Owns only native windows, never the note contents or local data file. */
 class NoteWindowManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, onClosed = () => {}, onDesktopHostError = () => {}, onDiagnostic = () => {}, desktopHost = attachToWindowsDesktop, surfaceRecovery = null }) {
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, opaqueDiagnostic = false, onClosed = () => {}, onDesktopHostError = () => {}, onDiagnostic = () => {}, desktopHost = attachToWindowsDesktop, surfaceRecovery = null, surfaceCapture = captureWindowSurface }) {
     this.BrowserWindow = BrowserWindow; this.screen = screen;
     this.indexPath = indexPath; this.preloadPath = preloadPath; this.onClosed = onClosed;
     this.onDesktopHostError = onDesktopHostError; this.onDiagnostic = onDiagnostic;
     this.desktopHost = desktopHost; this.compatibilityMode = compatibilityMode;
     this.surfaceRecovery = surfaceRecovery || new WindowsSurfaceRecovery();
+    this.surfaceCapture = surfaceCapture; this.opaqueDiagnostic = Boolean(opaqueDiagnostic);
     this.canvasMode = canvasMode;
     this.windows = new Map();
     // modes is the authoritative latest data mode, including bookmark. A
@@ -194,16 +196,18 @@ class NoteWindowManager {
 
   _create(view) {
     const id = view.id;
+    const transparent = !this.opaqueDiagnostic;
+    const backgroundColor = transparent ? '#00000000' : '#fff7ed';
     const win = new this.BrowserWindow({
       ...view.bounds, minWidth: 280, minHeight: 210,
-      frame: false, transparent: true, show: false, skipTaskbar: true,
-      resizable: false, backgroundColor: '#00000000', hasShadow: false,
+      frame: false, transparent, show: false, skipTaskbar: true,
+      resizable: false, backgroundColor, hasShadow: false,
       webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
     });
     win.pindoBaseMode = view.mode; win.pindoPromoted = view.mode === 'top';
     win.pindoLayerDesired = win.pindoPromoted; win.pindoHostInvalidated = view.mode === 'desktop';
     win.pindoReady = false; win.pindoVisible = false; win.pindoNoteType = view.type;
-    win.pindoWindowProfile = { role: 'native-note', transparent: true, backgroundColor: '#00000000', host: view.mode === 'top' ? 'top-level' : 'pending' };
+    win.pindoWindowProfile = { role: 'native-note', transparent, backgroundColor, host: view.mode === 'top' ? 'top-level' : 'pending', diagnostic: this.opaqueDiagnostic ? 'opaque-window' : null };
     win.pindoRequestedBoundsKey = JSON.stringify(view.bounds);
     this.windows.set(id, win);
     this._record(id, win, 'window-created', 'sync:create', null);
@@ -267,6 +271,14 @@ class NoteWindowManager {
             win.pindoSurfaceRecoveryPending = false;
             if (win.isDestroyed() || this.windows.get(id) !== win) return;
             this._record(id, win, result.ok ? 'native-redraw-completed' : 'native-redraw-failed', 'wm-showwindow-restored', before, result.ok ? {} : { error: String(result.reason || 'unknown').slice(0, 240) });
+            if (this.opaqueDiagnostic && !win.pindoSurfaceCapturePending) {
+              win.pindoSurfaceCapturePending = true;
+              void this.surfaceCapture(win).then(sample => {
+                if (!win.isDestroyed() && this.windows.get(id) === win) this._record(id, win, 'surface-capture-sampled', 'wm-showwindow-restored', before, { role: 'native-note', ...sample });
+              }).catch(error => {
+                if (!win.isDestroyed() && this.windows.get(id) === win) this._record(id, win, 'surface-capture-failed', 'wm-showwindow-restored', before, { role: 'native-note', error: String(error?.message || error).slice(0, 160) });
+              }).finally(() => { win.pindoSurfaceCapturePending = false; });
+            }
           });
         }
       });

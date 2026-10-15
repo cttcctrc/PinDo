@@ -31,7 +31,8 @@ test('settings keeps Dodo in the visible native control regions', () => {
 test('native note host is transparent, shadowless, and uses only an inner edge', () => {
   const manager = read('electron/note-window-manager.cjs');
   const css = read('dist/styles.css');
-  assert.match(manager, /backgroundColor:\s*'#00000000', hasShadow:\s*false/);
+  assert.match(manager, /const backgroundColor = transparent \? '#00000000' : '#fff7ed'/);
+  assert.match(manager, /backgroundColor, hasShadow:\s*false/);
   assert.match(css, /html:has\(body\.note-window-mode\)/);
   assert.match(css, /body\.note-window-mode \.note\.is-resizing[\s\S]*box-shadow: inset/);
 });

@@ -16,6 +16,20 @@ test('rejects invalid and untrusted note shapes', () => {
   assert.equal(nativeNoteView(note({ x: Number.NaN }), displays), null);
 });
 
+test('opaque diagnostic changes only the native surface profile', () => {
+  const created = [];
+  class FakeWindow {
+    constructor(options) { this.options = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
+    on() {} loadFile() {} isDestroyed() { return false; } setAlwaysOnTop() {} showInactive() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', opaqueDiagnostic: true });
+  manager.sync([note()]);
+  assert.equal(created[0].options.transparent, false);
+  assert.equal(created[0].options.backgroundColor, '#fff7ed');
+  assert.equal(created[0].pindoWindowProfile.diagnostic, 'opaque-window');
+  assert.equal(created[0].pindoWindowProfile.host, 'pending');
+});
+
 test('opens and closes separate windows, without creating windows for bookmarks', () => {
   const created = [];
   class FakeWindow {

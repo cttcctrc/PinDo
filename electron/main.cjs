@@ -24,6 +24,7 @@ const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
 
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
+const opaqueDiagnostic = packageMetadata.opaqueWindowDiagnostic === true;
 const cf07 = resolveCf07Diagnostics({ enabled: packageMetadata.cf07Diagnostics === true, softwareRendering: packageMetadata.cf07SoftwareRendering === true });
 if (cf07.softwareRendering) app.disableHardwareAcceleration();
 app.setName(cf07.enabled ? 'PinDo CF-07 Diagnostics' : canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
@@ -366,6 +367,7 @@ else {
     diagnostics = new Diagnostics({ app, screen, getStore: () => noteStore, getWindows: () => BrowserWindow.getAllWindows(), getCanvasState: () => desktopCanvas?.interactionState?.() || { active: false }, getCf07State: () => ({ enabled: cf07.enabled, mode: cf07.mode, softwareRendering: cf07.softwareRendering, dock: nativeFeatures?.dock?.diagnosticState?.() || null }), compatibility: compatibilityState });
     const dockHostPolicy = await detectNativeDockHost({ app, platform: process.platform, osRelease: os.release() });
     diagnostics.record('native-dock-host-policy', dockHostPolicy);
+    if (opaqueDiagnostic) diagnostics.record('opaque-window-diagnostic-start', { notesTransparent: false, dockTransparent: false, capturesPersisted: false });
     if (cf07.enabled) diagnostics.record('cf07-session-start', { mode: cf07.mode, softwareRendering: cf07.softwareRendering, compatibilityEnabled: compatibilityState.enabled, desktopModeEnabled: desktopMode.enabled });
     if (compatibilityState.autoEnabled) diagnostics.record('compatibility-auto-enabled', { reason: 'repeated-unclean-starts' });
     app.on('child-process-gone', (_event, detail) => diagnostics.record('child-process-gone', { type: detail.type, reason: detail.reason, exitCode: detail.exitCode }));
@@ -455,7 +457,7 @@ else {
     createWindow();
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
-    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled,
+    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, opaqueDiagnostic,
       onDesktopHostError: (_id, reason) => { console.error('PinDo note desktop host failed:', reason); diagnostics.record('desktop-host-failed', { reason }); },
       onDiagnostic: (event, detail) => diagnostics.record(event, detail)
     });
@@ -472,7 +474,7 @@ else {
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,opaqueDiagnostic,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {
