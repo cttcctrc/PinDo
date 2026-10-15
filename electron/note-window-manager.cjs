@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { attachToWindowsDesktop } = require('./windows-desktop-host.cjs');
+const { WindowsSurfaceRecovery } = require('./windows-surface-recovery.cjs');
 const { partitionNotes } = require('./canvas-note-routing.cjs');
 
 const VALID_MODES = new Set(['desktop', 'top', 'bookmark']);
@@ -40,11 +41,12 @@ function nativeMessageValue(value) {
 
 /** Owns only native windows, never the note contents or local data file. */
 class NoteWindowManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, onClosed = () => {}, onDesktopHostError = () => {}, onDiagnostic = () => {}, desktopHost = attachToWindowsDesktop }) {
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, compatibilityMode = false, canvasMode = false, onClosed = () => {}, onDesktopHostError = () => {}, onDiagnostic = () => {}, desktopHost = attachToWindowsDesktop, surfaceRecovery = null }) {
     this.BrowserWindow = BrowserWindow; this.screen = screen;
     this.indexPath = indexPath; this.preloadPath = preloadPath; this.onClosed = onClosed;
     this.onDesktopHostError = onDesktopHostError; this.onDiagnostic = onDiagnostic;
     this.desktopHost = desktopHost; this.compatibilityMode = compatibilityMode;
+    this.surfaceRecovery = surfaceRecovery || new WindowsSurfaceRecovery();
     this.canvasMode = canvasMode;
     this.windows = new Map();
     // modes is the authoritative latest data mode, including bookmark. A
@@ -258,6 +260,15 @@ class NoteWindowManager {
         const before = this._snapshot(id, win);
         win.webContents.invalidate?.();
         this._record(id, win, 'renderer-invalidated', 'wm-showwindow-restored', before);
+        if (!win.pindoSurfaceRecoveryPending) {
+          win.pindoSurfaceRecoveryPending = true;
+          this._record(id, win, 'native-redraw-requested', 'wm-showwindow-restored', before);
+          void this.surfaceRecovery.request(win).then(result => {
+            win.pindoSurfaceRecoveryPending = false;
+            if (win.isDestroyed() || this.windows.get(id) !== win) return;
+            this._record(id, win, result.ok ? 'native-redraw-completed' : 'native-redraw-failed', 'wm-showwindow-restored', before, result.ok ? {} : { error: String(result.reason || 'unknown').slice(0, 240) });
+          });
+        }
       });
     }
     win.on('restore', () => this._record(id, win, 'window-restored', 'native-event', this._snapshot(id, win)));
@@ -370,7 +381,7 @@ class NoteWindowManager {
     this.windows.delete(id); this.modes.delete(id); this.stateVersions.delete(id);
     if (win && !win.isDestroyed()) win.destroy();
   }
-  closeAll() { for (const id of [...this.windows.keys()]) this.close(id, 'close-all'); }
+  closeAll() { for (const id of [...this.windows.keys()]) this.close(id, 'close-all'); this.surfaceRecovery.close?.(); }
 }
 
 module.exports = { NoteWindowManager, nativeNoteView };

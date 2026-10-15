@@ -207,8 +207,8 @@ test('records native lifecycle messages without changing desktop window state', 
   assert.equal(win.invalidations, undefined);
 });
 
-test('Show Desktop hide and restore requests one renderer repaint without host or visibility churn', () => {
-  const { EventEmitter } = require('node:events'); const events = [], hostRequests = [];
+test('Show Desktop hide and restore repaints Chromium and its native child surface without host or visibility churn', () => {
+  const { EventEmitter } = require('node:events'); const events = [], hostRequests = [], nativeRedraws = [];
   class Win extends EventEmitter {
     constructor(options) {
       super(); this.bounds = options; this.hooks = new Map();
@@ -225,6 +225,7 @@ test('Show Desktop hide and restore requests one renderer repaint without host o
     BrowserWindow: Win, screen: { getAllDisplays: () => displays },
     indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs',
     desktopHost: async (_win, options) => { hostRequests.push(Boolean(options.promote)); return { attached: true }; },
+    surfaceRecovery: { request: async win => { nativeRedraws.push(win.id); return { ok: true }; }, close() {} },
     onDiagnostic: (event, detail) => events.push({ event, detail })
   });
   manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
@@ -234,7 +235,11 @@ test('Show Desktop hide and restore requests one renderer repaint without host o
     const shown = Buffer.alloc(8); shown.writeBigUInt64LE(1n);
     win.hooks.get(0x0018)(shown, Buffer.alloc(8));
     assert.equal(win.invalidations, 1);
+    assert.deepEqual(nativeRedraws, [win.id]);
     assert.deepEqual(hostRequests, [false]); assert.equal(win.visible, true);
     assert.equal(events.filter(entry => entry.event === 'renderer-invalidated').length, 1);
+    return new Promise(setImmediate).then(() => {
+      assert.equal(events.filter(entry => entry.event === 'native-redraw-completed').length, 1);
+    });
   });
 });

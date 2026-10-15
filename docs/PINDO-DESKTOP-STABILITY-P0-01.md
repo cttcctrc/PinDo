@@ -1,11 +1,11 @@
 # PINDO-DESKTOP-STABILITY-P0-01
 
-Status: rc.44 passed EDIT-FLICKER-01 real-machine acceptance and captured the CF-08 Show Desktop lifecycle; rc.45 validation pending.
+Status: rc.44 passed EDIT-FLICKER-01 real-machine acceptance; rc.45 failed CF-08 real-machine validation; rc.46 validation pending.
 
 Baseline: `1.1.0-beta.7.5-rc.42`  
-Failed candidate: `1.1.0-beta.7.5-rc.43`
+Failed candidates: `1.1.0-beta.7.5-rc.43`, `1.1.0-beta.7.5-rc.45`
 
-Next fix candidate: `1.1.0-beta.7.5-rc.45`
+Next fix candidate: `1.1.0-beta.7.5-rc.46`
 Branch: `fix/pindo-ux-org-01`
 
 ## Root-cause findings
@@ -66,30 +66,35 @@ Evidence:
 
 Root cause: rc.44 captured the exact lifecycle. Win+D sends every Explorer-hosted note `WM_SHOWWINDOW(0)` followed by `WM_SHOWWINDOW(1)` only 1–3 ms later, without `WM_SIZE/SIZE_MINIMIZED`, Electron `minimize`, a host change, or an internal visibility change. Chromium therefore keeps the note logically visible and does not schedule a repaint. On LTSC 2019 without DirectComposition, the restored transparent child surface exposes a black backing surface until a later compositor refresh.
 
+rc.45 result: failed. The supplied rc.45 report contains 180 matched restores and 180 `renderer-invalidated` events. Every captured post-rc.45 `WM_SHOWWINDOW` has `lParam=0`, confirming a direct ShowWindow state change rather than parent-closing/opening notification. There are no matching renderer crashes, BrowserWindow recreations, host attach/promote operations, or Electron minimize events in the failing interval. This narrows the remaining defect to the native child-surface paint path: scheduling Chromium paint alone does not synchronously invalidate the re-shown Win32 window tree on this software-composition environment.
+
 Fix:
 
 - Retain the safe `WS_MINIMIZE` clearing already present in native host transitions.
 - Continue recording `WM_SHOWWINDOW`, `WM_SIZE`, `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`, `WM_STYLECHANGED`, `WM_DWMCOMPOSITIONCHANGED`, and Electron restore events with both message parameters.
-- When and only when a desktop note receives the observed `WM_SHOWWINDOW(0→1)` pair, request one full Chromium repaint through `webContents.invalidate()`.
-- The correction does not poll, delay, reattach the Explorer host, call Hide/Show, reload, or reconstruct the BrowserWindow.
+- When and only when a desktop note receives the observed `WM_SHOWWINDOW(0→1)` pair, request a full Chromium repaint and a native `RedrawWindow` of the same HWND and its children.
+- Native redraw uses `RDW_INVALIDATE | RDW_INTERNALPAINT | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE`, so the transparent background is not erased to black.
+- A single persistent helper receives redraw requests over stdin, avoiding PowerShell startup for every note and every Win+D cycle. Outstanding requests for the same HWND are coalesced.
+- The correction does not poll, delay, reattach the Explorer host, call Hide/Show, reload, resize, or reconstruct the BrowserWindow.
 
 ## Diagnostics
 
-The candidate records privacy-safe events for window create/destroy, show/hide, focus/blur, host attach/promote/failure, TopMost, bounds, Note Mode, park/unpark, editor mount/unmount, composition start/end, renderer load/reload/crash, Electron minimize/restore, and selected native lifecycle messages around Show Desktop/compositor changes.
+The candidate records privacy-safe events for window create/destroy, show/hide, focus/blur, host attach/promote/failure, TopMost, bounds, Note Mode, park/unpark, editor mount/unmount, composition start/end, renderer load/reload/crash, Electron minimize/restore, native redraw request/result, and selected native lifecycle messages around Show Desktop/compositor changes.
 
 Each event contains timestamp (added by the existing diagnostics writer), SHA-256-truncated anonymous note ID, native window ID, reason, state version, and before/after window state. It does not contain note text, typed keys, account data, or file paths.
 
 ## Automated evidence
 
-- `npm test`: 187 passed, 0 failed.
+- `npm test`: 191 passed, 0 failed.
 - `npm run check:desktop`: passed.
 - `git diff --check`: passed.
-- New race regressions cover park-during-load, activation during a pending attach, Win+D minimize/reattach without BrowserWindow recreation, focus/blur without desktop reparenting, native lifecycle telemetry, and a single renderer invalidation after the observed Show Desktop hide/restore pair without host or visibility churn.
+- New race regressions cover park-during-load, activation during a pending attach, Win+D minimize/reattach without BrowserWindow recreation, focus/blur without desktop reparenting, native lifecycle telemetry, and paired Chromium/native repaint after the observed Show Desktop hide/restore pair without host or visibility churn.
+- Native helper tests cover 64-bit HWND preservation, persistent-process reuse, duplicate-request coalescing, safe error reporting, and the absence of ShowWindow/reparent/resize operations.
 - New editor policy tests cover local-draft/canonical-shell merge and IME/editor snapshot deferral.
 
 ## Windows acceptance matrix
 
-Partially accepted. rc.44 confirms that click/window-switch flicker is removed on Windows 10 LTSC 2019 Build 17763. CF-08 remains open until rc.45 proves that Win+D no longer creates black rectangles. The full requested interactive matrix is still required before final Owner acceptance.
+Partially accepted. rc.44 confirms that click/window-switch flicker is removed on Windows 10 LTSC 2019 Build 17763. rc.45 did not remove the Win+D black rectangles. CF-08 remains open until rc.46 passes real-machine testing. The full requested interactive matrix is still required before final Owner acceptance.
 
 ## Risk and rollback
 
