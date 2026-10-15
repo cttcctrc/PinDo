@@ -242,11 +242,22 @@ class NoteWindowManager {
         [0x007d, 'wm-stylechanged'],
         [0x031e, 'wm-dwmcompositionchanged']
       ]);
-      for (const [message, reason] of messages) win.hookWindowMessage(message, wParam => {
+      for (const [message, reason] of messages) win.hookWindowMessage(message, (wParam, lParam) => {
+        const nativeWParam = nativeMessageValue(wParam);
+        const nativeLParam = nativeMessageValue(lParam);
         this._record(id, win, 'native-window-message', reason, this._snapshot(id, win), {
           message: `0x${message.toString(16).padStart(4, '0')}`,
-          wParam: nativeMessageValue(wParam)
+          wParam: nativeWParam,
+          lParam: nativeLParam
         });
+        if (message !== 0x0018 || this.modes.get(id) !== 'desktop') return;
+        if (nativeWParam === 0) { win.pindoDesktopSurfaceHidden = true; return; }
+        if (nativeWParam !== 1 || !win.pindoDesktopSurfaceHidden) return;
+        win.pindoDesktopSurfaceHidden = false;
+        if (!win.pindoReady || win.pindoParked || !win.pindoVisible) return;
+        const before = this._snapshot(id, win);
+        win.webContents.invalidate?.();
+        this._record(id, win, 'renderer-invalidated', 'wm-showwindow-restored', before);
       });
     }
     win.on('restore', () => this._record(id, win, 'window-restored', 'native-event', this._snapshot(id, win)));

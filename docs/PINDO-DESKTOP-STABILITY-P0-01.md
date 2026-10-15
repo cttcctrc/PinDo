@@ -1,11 +1,11 @@
 # PINDO-DESKTOP-STABILITY-P0-01
 
-Status: rc.43 failed Windows real-machine acceptance; rc.44 static / automated validation passed and real-machine evidence is pending.
+Status: rc.44 passed EDIT-FLICKER-01 real-machine acceptance and captured the CF-08 Show Desktop lifecycle; rc.45 validation pending.
 
 Baseline: `1.1.0-beta.7.5-rc.42`  
 Failed candidate: `1.1.0-beta.7.5-rc.43`
 
-Next diagnostic candidate: `1.1.0-beta.7.5-rc.44`
+Next fix candidate: `1.1.0-beta.7.5-rc.45`
 Branch: `fix/pindo-ux-org-01`
 
 ## Root-cause findings
@@ -23,6 +23,8 @@ Evidence:
 - The log also contains 78 `active-changed` events, including duplicates while the effective state was unchanged.
 
 Root cause: rc.43 fixed the editor-snapshot race but retained a native focus policy that reparented the transparent Chromium surface on ordinary clicks and window switches. Duplicate activation and `moveTop()` calls amplified the visible compositor transition.
+
+Real-machine result: rc.44 no longer flickers on note clicks or when other windows are opened. EDIT-FLICKER-01 is accepted for this environment, subject to regression coverage in the combined P0 matrix.
 
 Fix:
 
@@ -62,13 +64,14 @@ Evidence:
 - The surviving white Todo reported native `alwaysOnTop=true` while manager state said `promoted=false` and `top=false`, proving native and internal window state had diverged.
 - The environment remains the high-risk LTSC 2019 software-composition path (`gl=none`, `angle=none`, DirectComposition disabled), but this is exposure evidence, not proof that the display driver is the sole cause.
 
-Current finding: the rc.43 root-cause claim was incomplete. Win+D invalidates or suppresses the rendered surface of Explorer-hosted transparent child windows without raising Electron `minimize`. The exact Windows message/state transition is not yet captured, so CF-08 remains under investigation and is not claimed fixed.
+Root cause: rc.44 captured the exact lifecycle. Win+D sends every Explorer-hosted note `WM_SHOWWINDOW(0)` followed by `WM_SHOWWINDOW(1)` only 1–3 ms later, without `WM_SIZE/SIZE_MINIMIZED`, Electron `minimize`, a host change, or an internal visibility change. Chromium therefore keeps the note logically visible and does not schedule a repaint. On LTSC 2019 without DirectComposition, the restored transparent child surface exposes a black backing surface until a later compositor refresh.
 
 Fix:
 
 - Retain the safe `WS_MINIMIZE` clearing already present in native host transitions.
-- Record `WM_SHOWWINDOW`, `WM_SIZE`, `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`, `WM_STYLECHANGED`, `WM_DWMCOMPOSITIONCHANGED`, and Electron restore events with anonymous IDs and state snapshots.
-- Use the rc.44 real-machine trace to select an event-driven correction for the actual transition. No polling, delay, repeated hide/show, reload, or BrowserWindow reconstruction has been added.
+- Continue recording `WM_SHOWWINDOW`, `WM_SIZE`, `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`, `WM_STYLECHANGED`, `WM_DWMCOMPOSITIONCHANGED`, and Electron restore events with both message parameters.
+- When and only when a desktop note receives the observed `WM_SHOWWINDOW(0→1)` pair, request one full Chromium repaint through `webContents.invalidate()`.
+- The correction does not poll, delay, reattach the Explorer host, call Hide/Show, reload, or reconstruct the BrowserWindow.
 
 ## Diagnostics
 
@@ -78,15 +81,15 @@ Each event contains timestamp (added by the existing diagnostics writer), SHA-25
 
 ## Automated evidence
 
-- `npm test`: 186 passed, 0 failed.
+- `npm test`: 187 passed, 0 failed.
 - `npm run check:desktop`: passed.
 - `git diff --check`: passed.
-- New race regressions cover park-during-load, activation during a pending attach, Win+D minimize/reattach without BrowserWindow recreation, focus/blur without desktop reparenting, and native lifecycle telemetry without state mutation.
+- New race regressions cover park-during-load, activation during a pending attach, Win+D minimize/reattach without BrowserWindow recreation, focus/blur without desktop reparenting, native lifecycle telemetry, and a single renderer invalidation after the observed Show Desktop hide/restore pair without host or visibility churn.
 - New editor policy tests cover local-draft/canonical-shell merge and IME/editor snapshot deferral.
 
 ## Windows acceptance matrix
 
-Not accepted. rc.43 reproduced both black rectangles and click/window-switch flicker on Windows 10 LTSC 2019 Build 17763. rc.44 must first confirm that click/window-switch flicker is removed and collect the new native-message trace during Win+D. CF-08 then requires a separately evidenced correction and the full requested interactive matrix before Owner acceptance.
+Partially accepted. rc.44 confirms that click/window-switch flicker is removed on Windows 10 LTSC 2019 Build 17763. CF-08 remains open until rc.45 proves that Win+D no longer creates black rectangles. The full requested interactive matrix is still required before final Owner acceptance.
 
 ## Risk and rollback
 

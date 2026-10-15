@@ -186,7 +186,7 @@ test('records native lifecycle messages without changing desktop window state', 
   class Win extends EventEmitter {
     constructor(options) {
       super(); this.bounds = options; this.hooks = new Map();
-      this.webContents = { setWindowOpenHandler() {}, on() {}, once() {}, send() {} };
+      this.webContents = { setWindowOpenHandler() {}, on() {}, once() {}, send() {}, invalidate: () => { this.invalidations = (this.invalidations || 0) + 1; } };
     }
     isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
     setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; }
@@ -198,9 +198,43 @@ test('records native lifecycle messages without changing desktop window state', 
     onDiagnostic: (event, detail) => events.push({ event, detail })
   });
   manager.sync([note()]); const win = manager.windows.get('note-1');
-  win.hooks.get(0x0018)(Buffer.alloc(8));
-  const size = Buffer.alloc(8); size.writeBigUInt64LE(1n); win.hooks.get(0x0005)(size);
+  win.hooks.get(0x0018)(Buffer.alloc(8), Buffer.alloc(8));
+  const size = Buffer.alloc(8); size.writeBigUInt64LE(1n); win.hooks.get(0x0005)(size, Buffer.alloc(8));
   const lifecycle = events.filter(entry => entry.event === 'native-window-message');
   assert.deepEqual(lifecycle.map(entry => [entry.detail.reason, entry.detail.wParam]), [['wm-showwindow', 0], ['wm-size', 1]]);
+  assert.equal(lifecycle[0].detail.lParam, 0);
   assert.equal(win.pindoPromoted, false); assert.equal(win.pindoActive, undefined);
+  assert.equal(win.invalidations, undefined);
+});
+
+test('Show Desktop hide and restore requests one renderer repaint without host or visibility churn', () => {
+  const { EventEmitter } = require('node:events'); const events = [], hostRequests = [];
+  class Win extends EventEmitter {
+    constructor(options) {
+      super(); this.bounds = options; this.hooks = new Map();
+      this.webContents = {
+        setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {},
+        invalidate: () => { this.invalidations = (this.invalidations || 0) + 1; }
+      };
+    }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; }
+    hookWindowMessage(message, callback) { this.hooks.set(message, callback); }
+  }
+  const manager = new NoteWindowManager({
+    BrowserWindow: Win, screen: { getAllDisplays: () => displays },
+    indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs',
+    desktopHost: async (_win, options) => { hostRequests.push(Boolean(options.promote)); return { attached: true }; },
+    onDiagnostic: (event, detail) => events.push({ event, detail })
+  });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
+  return new Promise(setImmediate).then(() => {
+    assert.deepEqual(hostRequests, [false]); assert.equal(win.visible, true);
+    win.hooks.get(0x0018)(Buffer.alloc(8), Buffer.alloc(8));
+    const shown = Buffer.alloc(8); shown.writeBigUInt64LE(1n);
+    win.hooks.get(0x0018)(shown, Buffer.alloc(8));
+    assert.equal(win.invalidations, 1);
+    assert.deepEqual(hostRequests, [false]); assert.equal(win.visible, true);
+    assert.equal(events.filter(entry => entry.event === 'renderer-invalidated').length, 1);
+  });
 });
