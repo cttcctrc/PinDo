@@ -44,6 +44,19 @@ test('surface continuity diagnostic preserves transparency and disables renderer
   assert.equal(created[0].pindoWindowProfile.diagnostic, 'surface-continuity');
 });
 
+test('native occlusion diagnostic preserves normal transparent and throttling settings', () => {
+  const created = [];
+  class FakeWindow {
+    constructor(options) { this.options = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
+    on() {} loadFile() {} isDestroyed() { return false; } setAlwaysOnTop() {} showInactive() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', nativeOcclusionDiagnostic: true });
+  manager.sync([note()]);
+  assert.equal(created[0].options.transparent, true);
+  assert.equal(created[0].options.webPreferences.backgroundThrottling, true);
+  assert.equal(created[0].pindoWindowProfile.diagnostic, 'native-occlusion-disabled');
+});
+
 test('opens and closes separate windows, without creating windows for bookmarks', () => {
   const created = [];
   class FakeWindow {

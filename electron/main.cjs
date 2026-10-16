@@ -26,6 +26,12 @@ const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
 const opaqueDiagnostic = packageMetadata.opaqueWindowDiagnostic === true;
 const surfaceContinuityDiagnostic = packageMetadata.surfaceContinuityDiagnostic === true;
+const nativeOcclusionDiagnostic = packageMetadata.nativeOcclusionDiagnostic === true;
+if (nativeOcclusionDiagnostic) {
+  const disabled = app.commandLine.getSwitchValue('disable-features').split(',').map(value => value.trim()).filter(Boolean);
+  if (!disabled.includes('CalculateNativeWinOcclusion')) disabled.push('CalculateNativeWinOcclusion');
+  app.commandLine.appendSwitch('disable-features', disabled.join(','));
+}
 const cf07 = resolveCf07Diagnostics({ enabled: packageMetadata.cf07Diagnostics === true, softwareRendering: packageMetadata.cf07SoftwareRendering === true });
 if (cf07.softwareRendering) app.disableHardwareAcceleration();
 app.setName(cf07.enabled ? 'PinDo CF-07 Diagnostics' : canvasCandidate ? 'PinDo Canvas Test' : 'PinDo');
@@ -370,8 +376,9 @@ else {
     diagnostics.record('native-dock-host-policy', dockHostPolicy);
     if (opaqueDiagnostic) diagnostics.record('opaque-window-diagnostic-start', { notesTransparent: false, dockTransparent: false, capturesPersisted: false });
     if (surfaceContinuityDiagnostic) diagnostics.record('surface-continuity-diagnostic-start', { notesTransparent: true, dockTransparent: true, backgroundThrottling: false, nativeOcclusionOverride: false, capturesPersisted: false });
+    if (nativeOcclusionDiagnostic) diagnostics.record('native-occlusion-diagnostic-start', { notesTransparent: true, dockTransparent: true, backgroundThrottling: true, disabledFeature: 'CalculateNativeWinOcclusion', commandLineValue: app.commandLine.getSwitchValue('disable-features'), capturesPersisted: false });
     ipcMain.on('pindo:surface-visibility', (event, value) => {
-      if (!surfaceContinuityDiagnostic || event.senderFrame !== event.sender.mainFrame) return;
+      if ((!surfaceContinuityDiagnostic && !nativeOcclusionDiagnostic) || event.senderFrame !== event.sender.mainFrame) return;
       const win = BrowserWindow.fromWebContents(event.sender);
       const profile = win?.pindoWindowProfile;
       if (!win || !profile || !['native-note', 'native-dock'].includes(profile.role)) return;
@@ -473,7 +480,7 @@ else {
     createWindow();
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
-    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, opaqueDiagnostic, surfaceContinuityDiagnostic,
+    noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, opaqueDiagnostic, surfaceContinuityDiagnostic, nativeOcclusionDiagnostic,
       onDesktopHostError: (_id, reason) => { console.error('PinDo note desktop host failed:', reason); diagnostics.record('desktop-host-failed', { reason }); },
       onDiagnostic: (event, detail) => diagnostics.record(event, detail)
     });
@@ -490,7 +497,7 @@ else {
       void desktopCanvas.open();
     }
     const noteIdentity = registerNoteIpc({ ipcMain, manager: noteWindowManager, getStore: () => noteStore, indexPath, persist: saveCanonicalState, onUpdated: broadcastState, context: noteContext });
-    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,opaqueDiagnostic,surfaceContinuityDiagnostic,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
+    nativeFeatures = registerNativeFeatures({electron,mainWindow,manager:noteWindowManager,noteIdentity,getCanvasWindow:()=>desktopCanvas?.active?desktopCanvas.window:null,getStore:()=>noteStore,persist:saveCanonicalState,broadcast:broadcastState,indexPath,preloadPath:path.join(__dirname,'preload.cjs'),diagnostic:cf07,opaqueDiagnostic,surfaceContinuityDiagnostic,nativeOcclusionDiagnostic,dockHostPolicy,onDiagnostic:(event,detail)=>diagnostics.record(event,detail)});
     resizePreview = new ResizePreview({ BrowserWindow });
     resizePreview.warm();
     registerWindowGesture({ ipcMain, screen, hooks: nativeFeatures.gestureHooks, resizePreview, resolveWindow: event => trustedSender(event) ? mainWindow : noteWindowManager.windows.get(noteIdentity(event)), refreshAfterMove: win => {
