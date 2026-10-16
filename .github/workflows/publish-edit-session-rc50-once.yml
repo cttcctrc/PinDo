@@ -1,0 +1,81 @@
+name: Publish PinDo edit-session correction rc.50 once
+
+on:
+  push:
+    branches: [fix/pindo-ux-org-01]
+    paths: [.github/workflows/publish-edit-session-rc50-once.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REPOSITORY: cttcctrc/PinDo
+      VALIDATED_RUN_ID: "38879235517"
+      VALIDATED_SHA: f2420668826264fa526a593ce536a08c33aa2e41
+      ARTIFACT_NAME: pindo-edit-session-rc50-19
+      TAG: v1.1.0-test.75.50
+      VERSION: 1.1.0-beta.7.5-rc.50
+      EXE_SHA256: 6277d0dd9f38f91e26f0a89df360bf0110ec87dcd8f6b2228e61b198867712d0
+      BLOCKMAP_SHA256: 512f540215f2a9f0c6baabd3a3c4ecbdffd72ee9867b66750ab2cd91420f7488
+      METADATA_SHA256: e8894445df69660524cf06b66f076512a7452f710bc490d5b144ccae87aaf0cb
+    steps:
+      - name: Download exact validated candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$VALIDATED_RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT_NAME" --dir candidate
+
+      - name: Verify commit, bytes and update metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPOSITORY/actions/runs/$VALIDATED_RUN_ID" --jq .head_sha)" = "$VALIDATED_SHA"
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          blockmap="$exe.blockmap"
+          metadata="candidate/release-candidate/test.yml"
+          test -f "$exe" && test -f "$blockmap" && test -f "$metadata"
+          echo "$EXE_SHA256  $exe" | sha256sum --check --strict
+          echo "$BLOCKMAP_SHA256  $blockmap" | sha256sum --check --strict
+          echo "$METADATA_SHA256  $metadata" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" "$metadata"
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
+          test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
+
+      - name: Publish exact bytes to test channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to create a duplicate."
+            exit 1
+          fi
+          exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
+          gh release create "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml \
+            --repo "$REPOSITORY" \
+            --target "$VALIDATED_SHA" \
+            --prerelease \
+            --title "PinDo $VERSION edit-session correction candidate" \
+            --notes "Test-channel candidate correcting the rc.44-rc.49 desktop-note edit-focus regression. Ordinary clicks remain Explorer-hosted; explicit editing uses one bounded non-TopMost native edit session and returns to the desktop host after editing. Packaged Windows smoke passed native text input, Ctrl+C, clipboard round-trip and host restoration. CF-08 Win+D black rectangles remain open; this candidate is not FINAL ACCEPTED and must be tested on the affected LTSC 2019 machine."
+
+      - name: Verify published test-channel metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
+          test "$(jq -r .draft <<<"$release")" = false
+          test "$(jq -r .prerelease <<<"$release")" = true
+          test "$(jq -r .target_commitish <<<"$release")" = "$VALIDATED_SHA"
+          test "$(jq '.assets | length' <<<"$release")" -eq 3
+          curl --fail --silent --show-error --location \
+            "https://github.com/$REPOSITORY/releases/download/$TAG/test.yml" \
+            --output published-test.yml
+          echo "$METADATA_SHA256  published-test.yml" | sha256sum --check --strict
+          grep -Fx "version: $VERSION" published-test.yml
