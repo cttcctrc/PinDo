@@ -1,4 +1,4 @@
-name: Publish PinDo edit-session correction rc.50 once
+name: Correct PinDo edit-session rc.50 assets once
 
 on:
   push:
@@ -15,14 +15,15 @@ jobs:
     timeout-minutes: 15
     env:
       REPOSITORY: cttcctrc/PinDo
-      VALIDATED_RUN_ID: "38879235517"
-      VALIDATED_SHA: f2420668826264fa526a593ce536a08c33aa2e41
-      ARTIFACT_NAME: pindo-edit-session-rc50-19
+      VALIDATED_RUN_ID: "38880263985"
+      VALIDATED_SHA: a013a2fe1e20a6513d6cbcbbfa91f925812884e2
+      RELEASE_TARGET_SHA: f2420668826264fa526a593ce536a08c33aa2e41
+      ARTIFACT_NAME: pindo-edit-session-rc50-21
       TAG: v1.1.0-test.75.50
-      VERSION: 1.1.0-beta.7.5-rc.50
-      EXE_SHA256: 6277d0dd9f38f91e26f0a89df360bf0110ec87dcd8f6b2228e61b198867712d0
-      BLOCKMAP_SHA256: 512f540215f2a9f0c6baabd3a3c4ecbdffd72ee9867b66750ab2cd91420f7488
-      METADATA_SHA256: e8894445df69660524cf06b66f076512a7452f710bc490d5b144ccae87aaf0cb
+      VERSION: 1.1.0-beta.7.5-rc.50-editfix
+      EXE_SHA256: 0814d1e8f37934ec352aeb64a3d9e44ac26c0d786e5b8511ac8d18dbc4029dc3
+      BLOCKMAP_SHA256: 81bdf285e7e0f9b3fabd20b0ea8396a58af70a238a6e8269ea8f2cbdfedace0a
+      METADATA_SHA256: 8b2f14227d79627f74a51416029f8aa6db46538a50a8cf7ce3395d1aa23b5360
     steps:
       - name: Download exact validated candidate
         env:
@@ -47,22 +48,22 @@ jobs:
           test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe' | wc -l)" -eq 1
           test "$(find candidate/release-candidate -maxdepth 1 -name '*.exe.blockmap' | wc -l)" -eq 1
 
-      - name: Publish exact bytes to test channel
+      - name: Replace the incorrect rc.50 assets in the existing prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; refusing to create a duplicate."
-            exit 1
-          fi
+          release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
+          test "$(jq -r .draft <<<"$release")" = false
+          test "$(jq -r .prerelease <<<"$release")" = true
+          test "$(jq -r .target_commitish <<<"$release")" = "$RELEASE_TARGET_SHA"
           exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
-          gh release create "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml \
-            --repo "$REPOSITORY" \
-            --target "$VALIDATED_SHA" \
-            --prerelease \
+          gh release upload "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml --repo "$REPOSITORY" --clobber
+          gh release delete-asset "$TAG" "PinDo-Desktop-Test-1.1.0-beta.7.5-rc.50-x64.exe" --repo "$REPOSITORY" --yes
+          gh release delete-asset "$TAG" "PinDo-Desktop-Test-1.1.0-beta.7.5-rc.50-x64.exe.blockmap" --repo "$REPOSITORY" --yes
+          gh release edit "$TAG" --repo "$REPOSITORY" \
             --title "PinDo $VERSION edit-session correction candidate" \
-            --notes "Test-channel candidate correcting the rc.44-rc.49 desktop-note edit-focus regression. Ordinary clicks remain Explorer-hosted; explicit editing uses one bounded non-TopMost native edit session and returns to the desktop host after editing. Packaged Windows smoke passed native text input, Ctrl+C, clipboard round-trip and host restoration. CF-08 Win+D black rectangles remain open; this candidate is not FINAL ACCEPTED and must be tested on the affected LTSC 2019 machine."
+            --notes "Test-channel candidate correcting the rc.44-rc.49 desktop-note edit-focus regression. Ordinary clicks remain Explorer-hosted; explicit editing uses one bounded non-TopMost native edit session and returns to the desktop host after editing. Packaged Windows smoke passed native text input, Ctrl+C, clipboard round-trip and host restoration. The editfix suffix preserves automatic-update precedence over rc.49-diag. CF-08 Win+D black rectangles remain open; this candidate is not FINAL ACCEPTED and must be tested on the affected LTSC 2019 machine."
 
       - name: Verify published test-channel metadata
         env:
@@ -72,7 +73,7 @@ jobs:
           release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
           test "$(jq -r .draft <<<"$release")" = false
           test "$(jq -r .prerelease <<<"$release")" = true
-          test "$(jq -r .target_commitish <<<"$release")" = "$VALIDATED_SHA"
+          test "$(jq -r .target_commitish <<<"$release")" = "$RELEASE_TARGET_SHA"
           test "$(jq '.assets | length' <<<"$release")" -eq 3
           curl --fail --silent --show-error --location \
             "https://github.com/$REPOSITORY/releases/download/$TAG/test.yml" \
