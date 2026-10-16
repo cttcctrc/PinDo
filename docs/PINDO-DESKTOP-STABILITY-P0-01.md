@@ -5,7 +5,7 @@ Status: rc.44 removed click/window-switch flicker but introduced an edit-focus r
 Baseline: `1.1.0-beta.7.5-rc.42`  
 Failed candidates: `1.1.0-beta.7.5-rc.43`, `rc.45`, `rc.46`, `rc.47-diag`, `rc.48-diag`, `rc.49-diag`
 
-Next fix candidate: `1.1.0-beta.7.5-rc.50`
+Next fix candidate: `1.1.0-beta.7.5-rc.50-editfix` (the nonnumeric suffix preserves update precedence over `rc.49-diag`)
 Branch: `fix/pindo-ux-org-01`
 
 ## Root-cause findings
