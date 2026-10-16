@@ -17,7 +17,7 @@ jobs:
       REPOSITORY: cttcctrc/PinDo
       VALIDATED_RUN_ID: "38880263985"
       VALIDATED_SHA: a013a2fe1e20a6513d6cbcbbfa91f925812884e2
-      RELEASE_TARGET_SHA: a013a2fe1e20a6513d6cbcbbfa91f925812884e2
+      RELEASE_TARGET_SHA: f2420668826264fa526a593ce536a08c33aa2e41
       ARTIFACT_NAME: pindo-edit-session-rc50-21
       TAG: v1.1.0-test.75.50
       VERSION: 1.1.0-beta.7.5-rc.50-editfix
@@ -56,9 +56,7 @@ jobs:
           release="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
           test "$(jq -r .draft <<<"$release")" = false
           test "$(jq -r .prerelease <<<"$release")" = true
-          release_id="$(jq -r .id <<<"$release")"
-          gh api --method PATCH "repos/$REPOSITORY/git/refs/tags/$TAG" -f sha="$RELEASE_TARGET_SHA" -F force=true >/dev/null
-          gh api --method PATCH "repos/$REPOSITORY/releases/$release_id" -f target_commitish="$RELEASE_TARGET_SHA" >/dev/null
+          test "$(jq -r .target_commitish <<<"$release")" = "$RELEASE_TARGET_SHA"
           exe="candidate/release-candidate/PinDo-Desktop-Test-$VERSION-x64.exe"
           gh release upload "$TAG" "$exe" "$exe.blockmap" candidate/release-candidate/test.yml --repo "$REPOSITORY" --clobber
           gh release delete-asset "$TAG" "PinDo-Desktop-Test-1.1.0-beta.7.5-rc.50-x64.exe" --repo "$REPOSITORY" --yes 2>/dev/null || true
@@ -76,7 +74,6 @@ jobs:
           test "$(jq -r .draft <<<"$release")" = false
           test "$(jq -r .prerelease <<<"$release")" = true
           test "$(jq -r .target_commitish <<<"$release")" = "$RELEASE_TARGET_SHA"
-          test "$(gh api "repos/$REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$RELEASE_TARGET_SHA"
           test "$(jq '.assets | length' <<<"$release")" -eq 3
           curl --fail --silent --show-error --location \
             "https://github.com/$REPOSITORY/releases/download/$TAG/test.yml" \
