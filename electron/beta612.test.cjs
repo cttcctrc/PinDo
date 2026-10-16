@@ -53,8 +53,10 @@ test('organizer refreshes its body without rebuilding the entire native note', (
   assert.match(app, /note\.organizerItemSize = next; refreshOrganizer\(note\)/);
 });
 
-test('desktop organizer title receives native keyboard focus without leaving desktop layer', () => {
+test('desktop editors request a bounded native edit session instead of relying on child-window focus', () => {
   const manager = read('electron/note-window-manager.cjs');
-  assert.match(manager, /pindoNoteType==='organizer'[\s\S]*selected\.focus\?\.\(\)[\s\S]*selected\.webContents\.focus\?\.\(\)/);
-  assert.match(read('dist/app.js'), /if \(noteWindowId\) void window\.pindoNative\.command\("focus-note"\)/);
+  assert.match(manager, /async beginEdit\([\s\S]*_requestLayer\(id, true[\s\S]*win\.focus\?\.\(\)[\s\S]*win\.webContents\.focus\?\.\(\)/);
+  assert.match(manager, /async endEdit\([\s\S]*_requestLayer\(id, false/);
+  assert.match(read('dist/app.js'), /await window\.pindoNative\.command\("begin-note-edit"\)/);
+  assert.match(read('dist/app.js'), /window\.pindoNative\.command\("end-note-edit"\)/);
 });

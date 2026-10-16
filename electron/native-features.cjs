@@ -76,6 +76,8 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     const id=kind==='canvas' && typeof value?.noteId==='string' ? value.noteId : noteIdentity(event), store=getStore();
     if(action==='focus-control' && kind==='control'){mainWindow.moveTop();return true;}
     if(action==='focus-note' && kind==='note'){manager.activate?.(id);return true;}
+    if(action==='begin-note-edit' && kind==='note')return manager.beginEdit?.(id,'renderer-begin-edit') || {accepted:false,reason:'unsupported'};
+    if(action==='end-note-edit' && kind==='note')return manager.endEdit?.(id,'renderer-end-edit') || {accepted:false,reason:'unsupported'};
     if(action==='focus-note-item' && kind==='control'){
       const win=manager.windows.get(value?.noteId);if(!win||win.isDestroyed())return false;
       manager.activate?.(value.noteId);if(manager.modes.get(value.noteId)==='top')win.moveTop();win.webContents.send('pindo:highlight-item',{type:value.type,id:value.itemId});return true;

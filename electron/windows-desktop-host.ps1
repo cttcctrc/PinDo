@@ -56,7 +56,9 @@ public static class PinDoDesktopHost {
         // stale/black state on Windows 10 17763, so clear it atomically while
         // changing the native layer.
         SetWindowLongPtr(note,GWL_STYLE,new IntPtr((style & ~WS_CHILD & ~WS_MINIMIZE) | WS_POPUP));
-        if (!SetWindowPos(note,new IntPtr(-1),rect.Left,rect.Top,rect.Right-rect.Left,rect.Bottom-rect.Top,SWP_NOACTIVATE | SWP_FRAMECHANGED))
+        // Editing needs a focusable top-level HWND, not a permanently pinned
+        // HWND_TOPMOST surface. Electron activates it after this transition.
+        if (!SetWindowPos(note,IntPtr.Zero,rect.Left,rect.Top,rect.Right-rect.Left,rect.Bottom-rect.Top,SWP_NOACTIVATE | SWP_FRAMECHANGED))
             throw new Win32Exception(Marshal.GetLastWin32Error());
         Console.WriteLine("desktop-attached");
     }

@@ -177,6 +177,51 @@ test('desktop activation keeps the renderer attached to Explorer across focus an
  assert.deepEqual(requests,[false]);assert.equal(win.raised,undefined);assert.equal(created,1);
 });
 
+test('an explicit edit session promotes once for keyboard focus and reattaches once when editing ends', async () => {
+  const { EventEmitter } = require('node:events'); const requests = [], events = [];
+  class Win extends EventEmitter {
+    constructor(options) {
+      super(); this.bounds = options;
+      this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {}, focus: () => { this.webFocused = true; } };
+    }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() { this.visible = true; }
+    moveTop() { this.raised = true; } focus() { this.nativeFocused = true; }
+  }
+  const manager = new NoteWindowManager({
+    BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs',
+    desktopHost: async (_win, options) => { requests.push(Boolean(options.promote)); return { attached: true }; },
+    onDiagnostic: event => events.push(event)
+  });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded(); await new Promise(setImmediate);
+  manager.activate('note-1'); assert.deepEqual(requests, [false]);
+  assert.equal((await manager.beginEdit('note-1')).accepted, true);
+  assert.deepEqual(requests, [false, true]);
+  assert.equal(win.pindoPromoted, true); assert.equal(win.top, false);
+  assert.equal(win.nativeFocused, true); assert.equal(win.webFocused, true); assert.equal(win.raised, true);
+  assert.equal((await manager.endEdit('note-1')).accepted, true);
+  assert.deepEqual(requests, [false, true, false]); assert.equal(win.pindoPromoted, false);
+  assert.deepEqual(events.filter(event => event.startsWith('editor-session')), ['editor-session-start', 'editor-session-end']);
+});
+
+test('ending an edit while promotion is pending cannot focus or leave a stale top-level window', async () => {
+  const { EventEmitter } = require('node:events'); const requests = [], pending = [];
+  class Win extends EventEmitter {
+    constructor(options) { super(); this.bounds = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once: (_event, callback) => { this.loaded = callback; }, send() {}, focus: () => { this.webFocused = true; } }; }
+    isDestroyed() { return false; } loadFile() {} getBounds() { return this.bounds; }
+    setAlwaysOnTop(value) { this.top = value; } showInactive() {} moveTop() { this.raised = true; } focus() { this.nativeFocused = true; }
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: Win, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost: async (_win, options) => { requests.push(Boolean(options.promote)); return new Promise(resolve => pending.push(resolve)); } });
+  manager.sync([note()]); const win = manager.windows.get('note-1'); win.loaded();
+  pending.shift()({ attached: true }); await new Promise(setImmediate);
+  const begin = manager.beginEdit('note-1'); assert.deepEqual(requests, [false, true]);
+  const end = manager.endEdit('note-1', 'renderer-blur-before-promote');
+  pending.shift()({ attached: true }); await new Promise(setImmediate);
+  assert.deepEqual(requests, [false, true, false]); pending.shift()({ attached: true });
+  assert.equal((await begin).accepted, false); await end;
+  assert.equal(win.pindoPromoted, false); assert.equal(win.nativeFocused, undefined); assert.equal(win.webFocused, undefined);
+});
+
 test('a stale did-finish-load host result cannot reshow a note parked while attach was pending', async () => {
   const { EventEmitter } = require('node:events'); let resolveHost;
   class Win extends EventEmitter {

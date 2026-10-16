@@ -6,7 +6,7 @@ async function waitFor(check, timeout = 20000) {
   while (Date.now() - started < timeout) { const value = await check(); if (value) return value; await wait(100); }
   throw new Error('Timed out waiting for PinDo windows');
 }
-async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore, outputDirectory }) {
+async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore, outputDirectory, clipboard }) {
   const output = path.resolve(outputDirectory); fs.mkdirSync(output, { recursive: true });
   const report = { version: app.getVersion(), platform: process.platform, packaged: app.isPackaged, checks: [], screenshots: [], passed: false };
   const check = (name, condition, detail = '') => { report.checks.push({ name, passed: Boolean(condition), detail }); if (!condition) throw new Error(`${name}${detail ? `: ${detail}` : ''}`); };
@@ -37,6 +37,30 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
       const image = await win.webContents.capturePage();
       const filename = `${view.type || 'note'}-${String(id).replace(/[^a-z0-9_-]/gi, '_')}.png`;
       fs.writeFileSync(path.join(output, filename), image.toPNG()); report.screenshots.push(filename);
+    }
+    if (!desktopCanvas) {
+      const editableEntry = [...noteWindowManager.windows].find(([id]) => {
+        const note = store.state.notes.find(item => item.id === id);
+        return note?.mode === 'desktop' && note?.type === 'quick';
+      });
+      if (editableEntry) {
+        const [id, win] = editableEntry;
+        const started = await win.webContents.executeJavaScript("(() => { const editor=document.querySelector('.quick-editor'); editor?.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return Boolean(editor); })()");
+        check(`note ${id} edit requested`, started);
+        await waitFor(() => win.pindoEditing && win.pindoPromoted && win.isFocused?.());
+        win.webContents.insertText('PinDo native input smoke');
+        const input = await win.webContents.executeJavaScript("document.querySelector('.quick-editor')?.innerText || ''");
+        check(`note ${id} native keyboard input`, input.includes('PinDo native input smoke'), input);
+        if (clipboard) {
+          clipboard.clear();
+          await win.webContents.executeJavaScript("(() => { const editor=document.querySelector('.quick-editor'); const range=document.createRange(); range.selectNodeContents(editor); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); return selection.toString(); })()");
+          win.webContents.copy();
+          check(`note ${id} native clipboard copy`, clipboard.readText().includes('PinDo native input smoke'));
+        }
+        await win.webContents.executeJavaScript("document.activeElement?.blur()");
+        await waitFor(() => !win.pindoEditing && !win.pindoPromoted);
+        check(`note ${id} edit layer restored`, true);
+      }
     }
     report.passed = true;
   } catch (error) { report.error = String(error?.stack || error); }

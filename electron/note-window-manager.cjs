@@ -65,7 +65,7 @@ class NoteWindowManager {
     return {
       mode: this.modes.get(id) || null,
       visible: Boolean(win?.pindoVisible), parked: Boolean(win?.pindoParked),
-      active: Boolean(win?.pindoActive), promoted: Boolean(win?.pindoPromoted),
+      active: Boolean(win?.pindoActive), editing: Boolean(win?.pindoEditing), promoted: Boolean(win?.pindoPromoted),
       topMost: Boolean(win?.pindoTop), hostBusy: Boolean(win?.pindoLayerBusy)
     };
   }
@@ -126,7 +126,7 @@ class NoteWindowManager {
     if (mode === 'bookmark') {
       const before = this._snapshot(id, win);
       const wasParked = Boolean(win.pindoParked);
-      win.pindoParked = true; win.pindoParkedAt ||= Date.now(); win.pindoActive = false;
+      win.pindoParked = true; win.pindoParkedAt ||= Date.now(); win.pindoActive = false; win.pindoEditing = false;
       win.pindoLayerDesired = false; win.pindoHostInvalidated = win.pindoBaseMode === 'desktop';
       this._hide(id, win, reason, !wasParked); this._setTop(id, win, false, reason);
       if (!wasParked) this._record(id, win, 'note-parked', reason, before);
@@ -135,11 +135,9 @@ class NoteWindowManager {
     if (mode === 'top') this._setTop(id, win, true, reason);
     if (!win.pindoReady) return;
     if (mode === 'desktop') {
-      // Desktop notes stay inside Explorer while they are edited. Promoting a
-      // transparent Chromium child to a Top-Level window on every focus, then
-      // parenting it back on blur, visibly tears the surface on LTSC 17763.
-      // `top` mode is the explicit authority for a Top-Level note.
-      const desired = false;
+      // Pointer focus must not churn the Explorer parent. Only an explicit
+      // editor session is promoted to a focusable top-level window.
+      const desired = Boolean(win.pindoEditing);
       if (!win.pindoHostFailed && (win.pindoLayerBusy || win.pindoHostInvalidated || win.pindoPromoted !== desired)) {
         this._requestLayer(id, desired, `${reason}:visibility`);
         return;
@@ -185,8 +183,9 @@ class NoteWindowManager {
           win.pindoWindowProfile = { ...(win.pindoWindowProfile || {}), host: target ? 'top-level' : 'explorer-desktop' };
           this._record(id, win, target ? 'host-promoted' : 'host-attached', reason, before, { operationVersion });
           if (this.modes.get(id) !== 'desktop' || (this.stateVersions.get(id) || 0) !== operationVersion) continue;
-          this._setTop(id, win, target, reason);
-          if (target) win.moveTop?.();
+          // Desktop-mode notes are never semantically "pinned", including
+          // while their editor is temporarily promoted for keyboard focus.
+          this._setTop(id, win, false, reason);
         }
       } finally {
         win.pindoLayerBusy = false; win.pindoLayerPromise = null;
@@ -208,7 +207,7 @@ class NoteWindowManager {
     });
     win.pindoBaseMode = view.mode; win.pindoPromoted = view.mode === 'top';
     win.pindoLayerDesired = win.pindoPromoted; win.pindoHostInvalidated = view.mode === 'desktop';
-    win.pindoReady = false; win.pindoVisible = false; win.pindoNoteType = view.type;
+    win.pindoReady = false; win.pindoVisible = false; win.pindoNoteType = view.type; win.pindoEditing = false;
     win.pindoWindowProfile = { role: 'native-note', transparent, backgroundColor, host: view.mode === 'top' ? 'top-level' : 'pending', diagnostic: this.opaqueDiagnostic ? 'opaque-window' : this.surfaceContinuityDiagnostic ? 'surface-continuity' : this.nativeOcclusionDiagnostic ? 'native-occlusion-disabled' : null, backgroundThrottling: !this.surfaceContinuityDiagnostic };
     win.pindoRequestedBoundsKey = JSON.stringify(view.bounds);
     this.windows.set(id, win);
@@ -219,25 +218,34 @@ class NoteWindowManager {
       if (new URL(url).origin !== 'null' || url.split('?')[0] !== expected) event.preventDefault();
     });
     win.webContents.on('did-start-loading', () => {
-      if (win.pindoReady) this._record(id, win, 'renderer-reload', 'did-start-loading', this._snapshot(id, win));
+      if (win.pindoReady) {
+        this._record(id, win, 'renderer-reload', 'did-start-loading', this._snapshot(id, win));
+        void this.endEdit(id, 'renderer-reload');
+      }
     });
     win.webContents.on('render-process-gone', (_event, detail) => {
       win.pindoReady = false;
       this._record(id, win, 'renderer-crash', detail?.reason || 'render-process-gone', this._snapshot(id, win));
+      void this.endEdit(id, 'renderer-crash');
     });
     win.on('focus', () => {
       const before = this._snapshot(id, win); this._record(id, win, 'window-focus', 'native-event', before);
       if (!win.pindoLayerBusy) this.activate(id, 'window-focus');
     });
     win.on('blur', () => {
-      const before = this._snapshot(id, win); win.webContents.send?.('pindo:window-blur');
+      const before = this._snapshot(id, win);
       this._record(id, win, 'window-blur', 'native-event', before);
-      if (!win.pindoLayerBusy) this.setActive(id, false, 'window-blur');
+      // SetParent/style transitions can emit a synthetic blur. Forwarding it
+      // would immediately tear down the editor that requested the promotion.
+      if (win.pindoLayerBusy) return;
+      win.webContents.send?.('pindo:window-blur');
+      void this.endEdit(id, 'window-blur');
+      this.setActive(id, false, 'window-blur');
     });
     win.on('minimize', () => {
       if (this.modes.get(id) !== 'desktop') return;
       const before = this._snapshot(id, win);
-      win.pindoActive = false; win.pindoLayerDesired = false; win.pindoHostInvalidated = true; win.pindoHostFailed = false;
+      win.pindoActive = false; win.pindoEditing = false; win.pindoLayerDesired = false; win.pindoHostInvalidated = true; win.pindoHostFailed = false;
       this._record(id, win, 'window-minimized', 'show-desktop-or-system', before);
       void this._requestLayer(id, false, 'window-minimized', true);
     });
@@ -346,11 +354,6 @@ class NoteWindowManager {
   activate(id, reason = 'command') {
     const selected = this.windows.get(id);
     if (!selected || selected.isDestroyed() || this.modes.get(id) === 'bookmark') return;
-    if(selected.pindoNoteType==='organizer'){
-      this.setActive(id, false, reason);
-      if(!selected.isFocused?.()) { selected.focus?.(); selected.webContents.focus?.(); }
-      return;
-    }
     if (selected.pindoActive && (this.modes.get(id) !== 'desktop' || (!selected.pindoHostInvalidated && !selected.pindoPromoted))) return;
     for (const [other, win] of this.windows) if (other !== id && win.pindoActive) this.setActive(other, false, 'activate-other');
     this.setActive(id, true, reason);
@@ -362,7 +365,8 @@ class NoteWindowManager {
     if (win.pindoNoteType === 'organizer') active = false;
     active = Boolean(active);
     if (win.pindoActive === active) {
-      if (this.modes.get(id) === 'desktop' && (win.pindoHostInvalidated || win.pindoPromoted)) void this._requestLayer(id, false, `${reason}:reconcile`);
+      const desired = Boolean(win.pindoEditing);
+      if (this.modes.get(id) === 'desktop' && (win.pindoHostInvalidated || win.pindoPromoted !== desired)) void this._requestLayer(id, desired, `${reason}:reconcile`);
       return;
     }
     const before = this._snapshot(id, win);
@@ -370,9 +374,47 @@ class NoteWindowManager {
     win.pindoHostFailed = false;
     this._record(id, win, 'active-changed', reason, before);
     if (this.modes.get(id) !== 'desktop') { this._setTop(id, win, true, reason); return; }
-    win.pindoLayerDesired = false;
+    const desired = Boolean(win.pindoEditing);
+    win.pindoLayerDesired = desired;
     this._setTop(id, win, false, reason);
-    if (win.pindoHostInvalidated || win.pindoPromoted) void this._requestLayer(id, false, reason);
+    if (win.pindoHostInvalidated || win.pindoPromoted !== desired) void this._requestLayer(id, desired, reason);
+  }
+
+  async beginEdit(id, reason = 'editor-request') {
+    const win = this.windows.get(id);
+    if (!win || win.isDestroyed() || this.modes.get(id) === 'bookmark') return { accepted: false, reason: 'unavailable' };
+    const before = this._snapshot(id, win);
+    win.pindoEditing = true; win.pindoActive = true; win.pindoHostFailed = false;
+    this._record(id, win, 'editor-session-start', reason, before);
+    if (this.modes.get(id) === 'desktop') {
+      await this._requestLayer(id, true, reason);
+      if (win.isDestroyed() || this.windows.get(id) !== win || !win.pindoEditing || !win.pindoPromoted || win.pindoHostFailed || this.modes.get(id) !== 'desktop') {
+        const failure = win.pindoHostFailed ? 'host-promote-failed' : 'stale';
+        if (win.pindoEditing) {
+          const failedBefore = this._snapshot(id, win);
+          win.pindoEditing = false; win.pindoLayerDesired = false;
+          this._record(id, win, 'editor-session-end', `begin-failed:${failure}`, failedBefore);
+          if (win.pindoPromoted) void this._requestLayer(id, false, `begin-failed:${failure}`);
+        }
+        return { accepted: false, reason: failure };
+      }
+      this._setTop(id, win, false, reason);
+    }
+    win.moveTop?.();
+    win.focus?.();
+    win.webContents.focus?.();
+    return { accepted: true };
+  }
+
+  async endEdit(id, reason = 'editor-request') {
+    const win = this.windows.get(id);
+    if (!win || win.isDestroyed()) return { accepted: false, reason: 'unavailable' };
+    if (!win.pindoEditing) return { accepted: true, changed: false };
+    const before = this._snapshot(id, win);
+    win.pindoEditing = false;
+    this._record(id, win, 'editor-session-end', reason, before);
+    if (this.modes.get(id) === 'desktop') await this._requestLayer(id, false, reason);
+    return { accepted: true, changed: true };
   }
 
   setBounds(id, bounds) {

@@ -825,14 +825,22 @@
 
   function requireDoubleClickToEdit(element) {
     const isField = element.matches("input,textarea");
-    const activate = event => {
+    const activate = async event => {
       event?.stopPropagation();
       if (isField) element.readOnly = false;
       else element.contentEditable = "true";
       element.classList.add("is-editing");
       nativeEditorElement = element;
-      if (noteWindowId) void window.pindoNative.command("focus-note");
+      const result = noteWindowId ? await window.pindoNative.command("begin-note-edit") : { accepted: true };
+      if (!result?.accepted || nativeEditorElement !== element || !element.classList.contains("is-editing")) {
+        if (nativeEditorElement === element) nativeEditorElement = null;
+        if (isField) element.readOnly = true;
+        else element.contentEditable = "false";
+        element.classList.remove("is-editing");
+        return;
+      }
       requestAnimationFrame(() => {
+        if (nativeEditorElement !== element) return;
         element.focus();
         if (!isField) placeCaretAtEnd(element);
       });
@@ -846,6 +854,7 @@
       if (nativeCompositionDepth) { nativeCompositionDepth = 0; nativeDiagnostic("composition-end", { reason: "editor-blur" }); }
       if (noteWindowId && wasEditing && (nativeDraftDirty || nativeSaveDeferred)) save();
       if (noteWindowId && wasEditing && nativePendingSnapshot) queueMicrotask(refreshNativeNote);
+      if (noteWindowId && wasEditing) void window.pindoNative.command("end-note-edit");
     };
     deactivate();
     if (!isField && !element.matches(".quick-editor")) element.addEventListener("paste", event => {

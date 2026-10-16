@@ -30,8 +30,7 @@ jobs:
       - name: Build installable candidate without publishing
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.49-diag
-          PINDO_NATIVE_OCCLUSION_DIAGNOSTIC: "1"
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.50
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
@@ -40,7 +39,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pindo-native-occlusion-rc49-${{ github.run_number }}
+          name: pindo-edit-session-rc50-${{ github.run_number }}
           path: |
             release-candidate/*.exe
             release-candidate/*.blockmap
