@@ -1,0 +1,108 @@
+name: Publish rc.42 rollback candidate
+
+on:
+  push:
+    branches: [rollback/rc42-test-channel-20261016]
+    paths: [.github/workflows/publish-rc42-rollback-once.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      BASE_SHA: 6ccdbff33279c7117553b74b336e310e2331ce27
+      VERSION: 1.1.0-beta.7.5-rc.51-rollback42
+      TAG: v1.1.0-test.75.51
+      REPOSITORY: cttcctrc/PinDo
+    steps:
+      - name: Check out rc42 baseline
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove packaged source matches rc42
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only $env:BASE_SHA $env:GITHUB_SHA)
+          if ($changed.Count -ne 1 -or $changed[0] -ne ".github/workflows/publish-rc42-rollback-once.yml") {
+            Write-Error "Rollback branch differs from rc42 outside the one-shot workflow: $($changed -join ', ')"
+            exit 1
+          }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Unit and regression tests
+        run: npm test
+
+      - name: Check desktop architecture
+        run: npm run check:desktop
+
+      - name: Build unpacked Windows validation
+        run: npx electron-builder --config electron-builder.validation.cjs --win dir --x64
+
+      - name: Run packaged validation smoke
+        run: node scripts/windows-smoke.cjs release-validation/win-unpacked/PinDo.exe release-validation/smoke
+
+      - name: Build rc42 rollback installer and metadata
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: ${{ env.VERSION }}
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:VERSION test
+          node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+          node -e "const semver=require('semver'); if(!semver.gt(process.env.VERSION,'1.1.0-beta.7.5-rc.50-editfix')) process.exit(1)"
+
+      - name: Upload rollback candidate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-rc42-rollback-${{ github.run_number }}
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
+            release-validation/smoke/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish rollback to test channel
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view $env:TAG --repo $env:REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "Release $env:TAG already exists; refusing duplicate."
+            exit 1
+          }
+          $exe = "release-candidate/PinDo-Desktop-Test-$env:VERSION-x64.exe"
+          gh release create $env:TAG $exe "$exe.blockmap" release-candidate/test.yml --repo $env:REPOSITORY --target $env:GITHUB_SHA --prerelease --title "PinDo $env:VERSION rc.42 rollback candidate" --notes "Emergency test-channel rollback. Packaged application source is identical to validated rc.42 commit 6ccdbff33279c7117553b74b336e310e2331ce27; only this one-shot workflow differs. The higher rc.51-rollback42 version is intentional so clients already on rc.50 can receive the rc.42 code baseline through automatic update. Existing notes, settings and cloud data are preserved. CF-08 remains open; this is not FINAL ACCEPTED."
+
+      - name: Verify published rollback
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh api "repos/$env:REPOSITORY/releases/tags/$env:TAG" | ConvertFrom-Json
+          if ($release.draft -ne $false -or $release.prerelease -ne $true) { throw "Release state mismatch" }
+          if ($release.assets.Count -ne 3) { throw "Expected exactly three assets" }
+          $names = @($release.assets.name)
+          $exeName = "PinDo-Desktop-Test-$env:VERSION-x64.exe"
+          foreach ($required in @($exeName, "$exeName.blockmap", "test.yml")) {
+            if ($names -notcontains $required) { throw "Missing asset $required" }
+          }
+          Invoke-WebRequest "https://github.com/$env:REPOSITORY/releases/download/$env:TAG/test.yml" -OutFile published-test.yml
+          if ((Select-String -Path published-test.yml -Pattern "^version: $([regex]::Escape($env:VERSION))$").Count -ne 1) {
+            throw "Published test metadata version mismatch"
+          }
