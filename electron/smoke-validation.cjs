@@ -52,10 +52,17 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
         const input = await win.webContents.executeJavaScript("document.querySelector('.quick-editor')?.innerText || ''");
         check(`note ${id} native keyboard input`, input.includes('PinDo native input smoke'), input);
         if (clipboard) {
-          clipboard.clear();
-          await win.webContents.executeJavaScript("(() => { const editor=document.querySelector('.quick-editor'); const range=document.createRange(); range.selectNodeContents(editor); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); return selection.toString(); })()");
-          win.webContents.copy();
-          check(`note ${id} native clipboard copy`, clipboard.readText().includes('PinDo native input smoke'));
+          const probe = `pindo-clipboard-probe-${Date.now()}`;
+          clipboard.writeText(probe); const clipboardAvailable = clipboard.readText() === probe; clipboard.clear();
+          const selectedLength = await win.webContents.executeJavaScript("(() => { window.__pindoSmokeCopyEvent=false; document.addEventListener('copy',()=>{window.__pindoSmokeCopyEvent=true},{once:true}); const editor=document.querySelector('.quick-editor'); const range=document.createRange(); range.selectNodeContents(editor); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); return selection.toString().length; })()");
+          win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers: ['control'] });
+          win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers: ['control'] });
+          const copyEvent = await waitFor(() => win.webContents.executeJavaScript("window.__pindoSmokeCopyEvent===true"), 2000).catch(() => false);
+          check(`note ${id} native copy shortcut`, copyEvent && selectedLength > 0, `event=${copyEvent};selectionLength=${selectedLength}`);
+          if (clipboardAvailable) {
+            const clipboardCopied = await waitFor(() => clipboard.readText().includes('PinDo native input smoke'), 2000).catch(() => false);
+            check(`note ${id} native clipboard copy`, clipboardCopied);
+          }
         }
         await win.webContents.executeJavaScript("document.activeElement?.blur()");
         await waitFor(() => !win.pindoEditing && !win.pindoPromoted);
