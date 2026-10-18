@@ -292,7 +292,10 @@
 
   async function initializeDodoV2() {
     if (noteWindowId || canvasWindow || dodoController) return;
-    dodoController = new PinDoDodoV2.DodoV2Controller({
+    try {
+      const api = window.PinDoDodoV2;
+      if (!api?.DodoV2Controller) throw new Error("Dodo V2 controller global unavailable");
+      dodoController = new api.DodoV2Controller({
       canvas: dodoCanvas,
       hostElement: assistant,
       assetBase: "./assets/dodo/v2",
@@ -305,7 +308,6 @@
         if (pendingDodoDock) { const side = pendingDodoDock; pendingDodoDock = null; tuckDodo(side); }
       }
     });
-    try {
       await dodoController.start();
       window.__pindoDodoV2Test = Object.freeze({
         enter: stateName => dodoController.enter(stateName, { reason: "smoke.direct" }),
@@ -314,7 +316,11 @@
         diagnostics: () => window.__pindoDodoV2Diagnostics
       });
     }
-    catch (error) { console.error("Dodo V2 startup failed", error); assistant.classList.remove("dodo-ready"); }
+    catch (error) {
+      window.__pindoDodoV2StartupError = String(error?.stack || error);
+      console.error("Dodo V2 startup failed", error);
+      dodoController?.destroy?.(); dodoController = null; assistant.classList.remove("dodo-ready");
+    }
   }
 
   function playDodoAnimation(name) {
