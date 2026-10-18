@@ -19,7 +19,8 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
     check('canonical state loaded', Array.isArray(store.state.notes) && store.state.notes.length >= 3);
     check('Dodo control loaded', await mainWindow.webContents.executeJavaScript("Boolean(document.querySelector('#assistantMascot') && document.querySelector('#dodoCanvas'))"));
     const hasDodoV2 = await mainWindow.webContents.executeJavaScript("Boolean(window.__pindoDodoV2Test)");
-    if (hasDodoV2) {
+    check('Dodo V2 runtime initialized', hasDodoV2);
+    {
       const initial = await waitFor(() => mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test?.diagnostics()?.firstFrameAt ? window.__pindoDodoV2Test.diagnostics() : null"));
       check('Dodo V2 first frame decoded', initial.state === 'idle_stand' && initial.startupMs >= 0, JSON.stringify(initial));
       const states = ['idle_sit','doze_loop','sleep_loop','disappointed','melt_loop','stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','drag_release_to_fall','fall_loop','fall_to_stand','idle_stand'];
