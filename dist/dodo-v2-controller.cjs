@@ -369,5 +369,6 @@
   };
 
   const api = { DodoV2Controller, PausableTimers, AssetStore, CanvasRenderer, anchorFrameAt, manifestFrames, between, sitBranch, DRAG_TRANSITIONS, OVERLAY_STATES };
-  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PinDoDodoV2 = api;
+  root.PinDoDodoV2 = api;
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);
