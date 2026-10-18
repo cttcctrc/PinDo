@@ -8,7 +8,7 @@
 
 ## 运行时路径与状态映射
 
-运行时根目录：`dist/assets/dodo/v2/`。WebP 原始包暂存于 GitHub 未发布 Draft Release（release id `416352373`，asset id `653062572`）；专用 Candidate 工作流下载后先校验 SHA-256，再仅装配 idle、drag、emotion、overlays。安装包不包含 reference、README、inventory 或 SHA 清单。
+运行时根目录：`dist/assets/dodo/v2/`。原始 ZIP 以 28 个有序分片保存在独立开发分支的 `dodo-pack-parts/`；专用 Candidate 工作流合并后先校验原包 SHA-256，再仅装配 idle、drag、emotion、overlays。安装包不包含分片、reference、README、inventory 或 SHA 清单。
 
 | 状态 | 资产目录/文件 |
 |---|---|

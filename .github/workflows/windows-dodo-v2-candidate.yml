@@ -16,17 +16,20 @@ jobs:
           fetch-depth: 0
       - name: Stage verified Dodo V2 runtime assets from unpublished draft
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $zip = Join-Path $env:RUNNER_TEMP "Dodo_Animation_Developer_Pack_v2.zip"
           $unpack = Join-Path $env:RUNNER_TEMP "dodo-v2-pack"
-          $headers = @{
-            Accept = "application/octet-stream"
-            Authorization = "Bearer $env:GH_TOKEN"
-            "X-GitHub-Api-Version" = "2022-11-28"
+          $parts = @(Get-ChildItem "dodo-pack-parts/dodo-pack-v2-*.chunk" | Sort-Object Name)
+          if ($parts.Count -ne 28) { throw "Expected 28 Dodo pack chunks, found $($parts.Count)" }
+          $output = [System.IO.File]::Create($zip)
+          try {
+            foreach ($part in $parts) {
+              $input = [System.IO.File]::OpenRead($part.FullName)
+              try { $input.CopyTo($output) } finally { $input.Dispose() }
+            }
+          } finally {
+            $output.Dispose()
           }
-          Invoke-WebRequest -Uri "https://api.github.com/repos/cttcctrc/PinDo/releases/assets/653062572" -Headers $headers -OutFile $zip
           $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = "0827bb61d674282d7e89a1838ac82298bef8f83bd294d95e97bb54e63388e256"
           if ($actual -ne $expected) { throw "Dodo pack SHA-256 mismatch: $actual" }
