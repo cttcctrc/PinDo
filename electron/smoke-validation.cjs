@@ -18,9 +18,10 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
     check('packaged executable', app.isPackaged);
     check('canonical state loaded', Array.isArray(store.state.notes) && store.state.notes.length >= 3);
     check('Dodo control loaded', await mainWindow.webContents.executeJavaScript("Boolean(document.querySelector('#assistantMascot') && document.querySelector('#dodoCanvas'))"));
-    const hasDodoV2 = await mainWindow.webContents.executeJavaScript("Boolean(window.__pindoDodoV2Test)");
+    const dodoRuntime = await mainWindow.webContents.executeJavaScript("({ ready: Boolean(window.__pindoDodoV2Test), api: Boolean(window.PinDoDodoV2?.DodoV2Controller), imageDecoder: typeof ImageDecoder, startupError: window.__pindoDodoV2StartupError || null })");
+    const hasDodoV2 = dodoRuntime.ready;
     const isBaseline = app.getVersion().includes('dodo-baseline');
-    check('Dodo V2 runtime initialized', hasDodoV2 || isBaseline, isBaseline ? 'not applicable to baseline' : '');
+    check('Dodo V2 runtime initialized', hasDodoV2 || isBaseline, isBaseline ? 'not applicable to baseline' : JSON.stringify(dodoRuntime));
     if (hasDodoV2) {
       const initial = await waitFor(() => mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test?.diagnostics()?.firstFrameAt ? window.__pindoDodoV2Test.diagnostics() : null"));
       check('Dodo V2 first frame decoded', initial.state === 'idle_stand' && initial.startupMs >= 0, JSON.stringify(initial));
