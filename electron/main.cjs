@@ -21,6 +21,7 @@ const { readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas } = require('.
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 const { MODE_LABELS, resolveCf07Diagnostics, relaunchArgs } = require('./cf07-diagnostics.cjs');
 const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
+const { createDodoPhysicsHandler } = require('./dodo-physics.cjs');
 
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
@@ -308,9 +309,11 @@ function createWindow() {
   const hitTest = createControlHitTest(mainWindow, screen);
   const onRegions = (event, regions) => { if (trustedSender(event)) hitTest.update(regions); };
   ipcMain.on('pindo:control-regions', onRegions);
+  const onDodoPhysics = createDodoPhysicsHandler({ trustedSender, getWindow: () => mainWindow, screen });
+  ipcMain.on('pindo:dodo-physics', onDodoPhysics);
   const hitTimer = setInterval(() => { if (mainWindow?.isVisible()) hitTest.refresh(); }, 16);
   hitTimer.unref();
-  mainWindow.on('closed', () => { clearInterval(hitTimer); ipcMain.removeListener('pindo:control-regions', onRegions); });
+  mainWindow.on('closed', () => { clearInterval(hitTimer); ipcMain.removeListener('pindo:control-regions', onRegions); ipcMain.removeListener('pindo:dodo-physics', onDodoPhysics); });
   mainWindow.webContents.on('did-start-loading', () => hitTest.update([]));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {

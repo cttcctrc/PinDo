@@ -1,0 +1,88 @@
+name: Build Dodo V2 animation candidate
+on:
+  push:
+    branches: [feature/dodo-v2-animation-integration]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out Dodo V2 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Stage verified Dodo V2 runtime assets from unpublished draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "Dodo_Animation_Developer_Pack_v2.zip"
+          $unpack = Join-Path $env:RUNNER_TEMP "dodo-v2-pack"
+          $headers = @{
+            Accept = "application/octet-stream"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          Invoke-WebRequest -Uri "https://api.github.com/repos/cttcctrc/PinDo/releases/assets/653062572" -Headers $headers -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "0827bb61d674282d7e89a1838ac82298bef8f83bd294d95e97bb54e63388e256"
+          if ($actual -ne $expected) { throw "Dodo pack SHA-256 mismatch: $actual" }
+          Expand-Archive -Path $zip -DestinationPath $unpack -Force
+          $source = Join-Path $unpack "Dodo_Animation_Developer_Pack_v2"
+          $runtime = Join-Path $PWD "dist/assets/dodo/v2"
+          foreach ($folder in @("idle", "drag", "emotion", "overlays")) {
+            New-Item -ItemType Directory -Path (Join-Path $runtime "assets/$folder") -Force | Out-Null
+            Copy-Item (Join-Path $source "assets/$folder/*.webp") (Join-Path $runtime "assets/$folder/") -Force
+          }
+          $webpCount = @(Get-ChildItem $runtime -Recurse -Filter *.webp).Count
+          if ($webpCount -ne 27) { throw "Expected 27 runtime WebP assets, found $webpCount" }
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Unit, asset and desktop regression tests
+        run: |
+          npm test
+          npm run check:desktop
+      - name: Build and smoke rc.42 functional baseline
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-dodo-baseline.42
+        run: |
+          git worktree add baseline 6ccdbff33279c7117553b74b336e310e2331ce27
+          Copy-Item electron/smoke-validation.cjs baseline/electron/smoke-validation.cjs -Force
+          Push-Location baseline
+          npm ci --no-audit --no-fund
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+          Pop-Location
+      - name: Build installable Dodo V2 Candidate without publishing
+        shell: pwsh
+        env:
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-dodo-v2.1
+        run: |
+          npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
+          node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
+          node scripts/windows-smoke.cjs release-candidate/win-unpacked/PinDo.exe release-candidate/smoke
+      - name: Compare baseline and Candidate performance
+        run: node scripts/report-dodo-v2-performance.cjs baseline/release-candidate release-candidate dodo-v2-report
+      - name: Upload Candidate, test evidence and performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pindo-dodo-v2-candidate-${{ github.run_number }}
+          path: |
+            release-candidate/*.exe
+            release-candidate/*.blockmap
+            release-candidate/test.yml
+            release-candidate/smoke/**
+            baseline/release-candidate/smoke/**
+            dodo-v2-report/**
+          if-no-files-found: warn
+          retention-days: 14

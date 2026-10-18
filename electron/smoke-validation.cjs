@@ -8,7 +8,7 @@ async function waitFor(check, timeout = 20000) {
 }
 async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopCanvas, getStore, outputDirectory }) {
   const output = path.resolve(outputDirectory); fs.mkdirSync(output, { recursive: true });
-  const report = { version: app.getVersion(), platform: process.platform, packaged: app.isPackaged, checks: [], screenshots: [], passed: false };
+  const report = { version: app.getVersion(), platform: process.platform, packaged: app.isPackaged, checks: [], screenshots: [], performance: {}, passed: false };
   const check = (name, condition, detail = '') => { report.checks.push({ name, passed: Boolean(condition), detail }); if (!condition) throw new Error(`${name}${detail ? `: ${detail}` : ''}`); };
   try {
     await waitFor(() => getStore()?.state?.notes?.length && mainWindow && !mainWindow.isDestroyed());
@@ -18,6 +18,25 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
     check('packaged executable', app.isPackaged);
     check('canonical state loaded', Array.isArray(store.state.notes) && store.state.notes.length >= 3);
     check('Dodo control loaded', await mainWindow.webContents.executeJavaScript("Boolean(document.querySelector('#assistantMascot') && document.querySelector('#dodoCanvas'))"));
+    const hasDodoV2 = await mainWindow.webContents.executeJavaScript("Boolean(window.__pindoDodoV2Test)");
+    if (hasDodoV2) {
+      const initial = await waitFor(() => mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test?.diagnostics()?.firstFrameAt ? window.__pindoDodoV2Test.diagnostics() : null"));
+      check('Dodo V2 first frame decoded', initial.state === 'idle_stand' && initial.startupMs >= 0, JSON.stringify(initial));
+      const states = ['idle_sit','doze_loop','sleep_loop','disappointed','melt_loop','stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','drag_release_to_fall','fall_loop','fall_to_stand','idle_stand'];
+      for (const state of states) {
+        const decoded = await mainWindow.webContents.executeJavaScript(`window.__pindoDodoV2Test.enter(${JSON.stringify(state)}).then(() => window.__pindoDodoV2Test.diagnostics())`);
+        check(`Dodo V2 decodes ${state}`, decoded.state === state, JSON.stringify(decoded));
+      }
+      await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.blink()");
+      await wait(120);
+      const overlay = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
+      check('Dodo V2 overlay starts on demand', overlay.overlay === 'blink', JSON.stringify(overlay));
+      const metrics = app.getAppMetrics();
+      const workingSetKb = metrics.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0), 0);
+      report.performance = { dodoStartupMs: initial.startupMs, animationPeakCompressedBytes: overlay.peakCompressedBytes, decodedFrameEstimateBytes: overlay.decodedFrameEstimateBytes, appWorkingSetKb: workingSetKb };
+      const image = await mainWindow.webContents.capturePage();
+      fs.writeFileSync(path.join(output, 'dodo-v2.png'), image.toPNG()); report.screenshots.push('dodo-v2.png');
+    }
     const expected = store.state.notes.filter(note => desktopCanvas ? note.mode === 'top' : note.mode !== 'bookmark').length;
     check('native note count', noteWindowManager.windows.size === expected, `${noteWindowManager.windows.size}/${expected}`);
     if (desktopCanvas) {
@@ -37,6 +56,9 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
       const image = await win.webContents.capturePage();
       const filename = `${view.type || 'note'}-${String(id).replace(/[^a-z0-9_-]/gi, '_')}.png`;
       fs.writeFileSync(path.join(output, filename), image.toPNG()); report.screenshots.push(filename);
+    }
+    if (!report.performance.appWorkingSetKb) {
+      report.performance.appWorkingSetKb = app.getAppMetrics().reduce((sum, item) => sum + (item.memory?.workingSetSize || 0), 0);
     }
     report.passed = true;
   } catch (error) { report.error = String(error?.stack || error); }

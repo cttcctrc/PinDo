@@ -16,11 +16,12 @@ test('edge preview owns its fixed instruction instead of a cursor-following rend
   assert.doesNotMatch(app, /native-edge-hint/);
 });
 
-test('common Dodo sheets warm eagerly while mood assets stay lazy', () => {
-  const app = read('dist/app.js');
-  assert.match(app, /\["idle_breathe", "blink", "look_around"\]\.forEach\(loadDodoImage\)/);
-  assert.doesNotMatch(app, /\["idle_breathe", "blink", "look_around", "sad_enter"/);
-  assert.match(app, /nextFrame !== lastDrawnFrame/);
+test('Dodo V2 loads only the standing asset at startup and bounds the main cache', () => {
+  const app = read('dist/app.js'), controller = read('dist/dodo-v2-controller.cjs');
+  assert.match(app, /await dodoController\.start\(\)/);
+  assert.doesNotMatch(app, /forEach\(loadDodoImage\)/);
+  assert.match(controller, /new AssetStore\(options\.assetBase, 2/);
+  assert.match(controller, /result\.image\.duration/);
 });
 
 test('all local CSS asset URLs resolve after unused-asset cleanup', () => {

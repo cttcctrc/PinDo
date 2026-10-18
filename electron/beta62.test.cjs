@@ -11,15 +11,14 @@ test('Dodo hit regions tolerate absent transient animation elements', () => {
   assert.match(app, /elements\.filter\(el => el && !el\.hidden/);
 });
 
-test('Dodo mood changes use real forward and reverse sprite transitions', () => {
-  const app = read('dist/app.js');
-  for (const asset of ['sad_enter.webp', 'sad_loop.webp', 'depressed_enter.webp', 'sleep_enter.webp']) {
-    assert.ok(fs.statSync(path.join(root, 'dist/assets/dodo/animations', asset)).size > 10_000, asset);
-    assert.match(app, new RegExp(asset.replace('.', '\\.')));
-  }
-  assert.match(app, /options\.reverse \? 17 - elapsedFrame : elapsedFrame/);
-  assert.match(app, /depressed_enter",reverse:true.*sad_enter",reverse:true/);
-  assert.doesNotMatch(app, /setDodoSleeping/);
+test('Dodo V2 uses explicit emotion and sleep transitions from the packaged state machine', () => {
+  const controller = read('dist/dodo-v2-controller.cjs');
+  const config = JSON.parse(read('dist/assets/dodo/v2/dodo_animation_state_machine.json'));
+  for (const state of ['disappointed','disappointed_to_melt','melt_loop','doze_to_sleep','sleep_loop','sleep_to_stand'])
+    assert.ok(config.states[state], state);
+  assert.match(controller, /emotion\.disappointed/);
+  assert.match(controller, /idle\.doze_timeout/);
+  assert.doesNotMatch(controller, /reverse:true/);
 });
 
 test('official PinDo logo is wired to executable, window and tray surfaces', () => {

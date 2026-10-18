@@ -5,11 +5,15 @@ const path = require('node:path');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'dist', 'app.js'), 'utf8');
 
-test('mood transition releases its priority lock before starting the stable loop', () => {
-  assert.match(app, /if\(!step\)\{[\s\S]*priority:-1[\s\S]*settleDodoMood\(desired,token\)/);
+test('V2 state changes clear overlays before starting one primary animation', () => {
+  const controller = fs.readFileSync(path.join(__dirname, '..', 'dist', 'dodo-v2-controller.cjs'), 'utf8');
+  assert.match(controller, /this\.timers\.clearAll\(\); this\.stopOverlay\(\)/);
+  assert.match(controller, /await this\.player\.play\(state, spec/);
 });
 
-test('depressed exits through both reverse transitions and settles on idle breathing', () => {
-  assert.match(app, /dodoStableMood==="depressed"\)steps\.push\(\{name:"depressed_enter",reverse:true\},\{name:"sad_enter",reverse:true\}\)/);
-  assert.match(app, /else \{playDodoAnimation\("idle_breathe",\{priority:0\}\)/);
+test('V2 negative emotion is explicit and returns through approved forward assets', () => {
+  const controller = fs.readFileSync(path.join(__dirname, '..', 'dist', 'dodo-v2-controller.cjs'), 'utf8');
+  assert.match(controller, /disappointed\(payload = \{\}\)/);
+  assert.match(controller, /melt_to_stand/);
+  assert.match(controller, /emotion\.complete/);
 });

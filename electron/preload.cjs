@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld("pindoWindow", Object.freeze({
   gesture: (action, kind) => {
     if (action === 'update') { ipcRenderer.send("pindo:window-gesture", action, kind); return null; }
     return ipcRenderer.sendSync("pindo:window-gesture", action, kind);
+  },
+  // Scoped Dodo-only movement channel used after pointer release. It exposes
+  // no arbitrary window handle and keeps all monitor clamping in the main process.
+  dodoPhysics: (action, value) => {
+    if (action === 'move') { ipcRenderer.send('pindo:dodo-physics', action, value); return null; }
+    return ipcRenderer.sendSync('pindo:dodo-physics', action, value);
   }
 }));
 

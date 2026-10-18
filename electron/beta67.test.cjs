@@ -13,11 +13,11 @@ test('timeline dock preview uses inclusive calendar-day range instead of elapsed
   assert.match(app, /前后7天要进行/);
 });
 
-test('unfinished timeline nodes dated today join the Dodo and Today item aggregate', () => {
+test('unfinished timeline nodes dated today join the Today item aggregate without inferring Dodo emotion', () => {
   assert.match(app, /note\.type === "timeline"/);
   assert.match(app, /!item\.done && item\.text\?\.trim\(\) && datePart\(item\.time\) === today/);
   assert.match(app, /type: "timeline", note, item/);
-  assert.match(app, /count:todayItems\(\)\.length/);
+  assert.doesNotMatch(app, /PinDoDodo\.stateFor\(\{count:todayItems\(\)\.length/);
 });
 
 
