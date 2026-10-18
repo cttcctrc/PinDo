@@ -68,7 +68,7 @@ jobs:
       - name: Build installable Dodo V2 Candidate without publishing
         shell: pwsh
         env:
-          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-dodo-v2.1
+          PINDO_RELEASE_VERSION: 1.1.0-beta.7.5-rc.52-dodo-v2.1
         run: |
           npx electron-builder --config electron-builder.candidate.cjs --win nsis --x64 --publish never
           node scripts/check-update-artifacts.cjs release-candidate $env:PINDO_RELEASE_VERSION test
