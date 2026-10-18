@@ -59,7 +59,8 @@
       const key = `${assetPath}|${manifestPath}`;
       if (this.records.has(key)) { const record = this.records.get(key); record.usedAt = performance.now(); return record; }
       if (!("ImageDecoder" in root)) throw new Error("Animated WebP requires the ImageDecoder API");
-      const [assetResponse, manifestResponse] = await Promise.all([this.fetcher(this.url(assetPath)), this.fetcher(this.url(manifestPath))]);
+      const request = this.fetcher.bind(root);
+      const [assetResponse, manifestResponse] = await Promise.all([request(this.url(assetPath)), request(this.url(manifestPath))]);
       if (!assetResponse.ok || !manifestResponse.ok) throw new Error(`Dodo asset unavailable: ${assetPath}`);
       const [data, manifest] = await Promise.all([assetResponse.arrayBuffer(), manifestResponse.json()]);
       const decoder = new root.ImageDecoder({ data, type: "image/webp", preferAnimation: true });
