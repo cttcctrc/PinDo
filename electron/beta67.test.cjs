@@ -13,18 +13,19 @@ test('timeline dock preview uses inclusive calendar-day range instead of elapsed
   assert.match(app, /前后7天要进行/);
 });
 
-test('unfinished timeline nodes dated today join the Dodo and Today item aggregate', () => {
+test('unfinished timeline nodes dated today join the Today item aggregate without inferring Dodo emotion', () => {
   assert.match(app, /note\.type === "timeline"/);
   assert.match(app, /!item\.done && item\.text\?\.trim\(\) && datePart\(item\.time\) === today/);
   assert.match(app, /type: "timeline", note, item/);
-  assert.match(app, /count:todayItems\(\)\.length/);
+  assert.doesNotMatch(app, /PinDoDodo\.stateFor\(\{count:todayItems\(\)\.length/);
 });
 
-test('Today navigation targets todo or timeline rows and flashes either three times', () => {
+
+test('Today navigation targets todo or timeline rows with double soft locate feedback', () => {
   assert.match(app, /data-jump-type="\$\{type\}"/);
   assert.match(app, /detail\?\.type === "timeline" \? `\[data-event-id=/);
-  assert.match(css, /\.todo-row\.pindo-attention,\.timeline-row\.pindo-attention/);
-  assert.match(css, /animation:pindoAttention \.42s ease 3/);
+  assert.match(css, /\.todo-row\.pindo-locate-feedback,\.timeline-row\.pindo-locate-feedback/);
+  assert.match(css, /animation:pindoLocateWiggle var\(--motion-slow\)[^;]* 2/);
 });
 
 test('timeline due scanner remains wired for automatic reminders', () => {

@@ -6,11 +6,17 @@
   const noteWindowId = query.get("noteWindow");
   const controlWindow = query.get("controlWindow") === "1";
   const canvasWindow = query.get("canvasWindow") === "1";
+  let canvasOriginX = Number(query.get("canvasOriginX")) || 0;
+  let canvasOriginY = Number(query.get("canvasOriginY")) || 0;
+  const canvasLocalX = screenX => canvasWindow ? screenX - canvasOriginX : screenX;
+  const canvasLocalY = screenY => canvasWindow ? screenY - canvasOriginY : screenY;
   const compatibilityMode = query.get("compatibility") === "1";
   if (noteWindowId) document.body.classList.add("note-window-mode");
   if (controlWindow) document.body.classList.add("control-window-mode");
   if (canvasWindow) document.body.classList.add("canvas-window-mode");
   if (compatibilityMode) document.body.classList.add("compatibility-mode");
+  const MOTION = Object.freeze({ fast: 110, normal: 190, slow: 280 });
+  const SNAP_THRESHOLD = 22, DETACH_THRESHOLD = 34;
   const COLORS = ["#fff0dc", "#dfe8ff", "#f0ddff", "#dff1e7", "#ffe4da", "#e8eef8"];
   const PIN_COLORS = ["#ff7044", "#467df4", "#8356e8", "#4fa674", "#f05f3b", "#386ee8"];
   const NODE_COLORS = ["#ef725f", "#eeaa45", "#6ca97d", "#5795d6", "#8d72be", "#565b64"];
@@ -77,6 +83,8 @@
   const dataSettingsStatus = document.querySelector("#dataSettingsStatus");
   let zCounter = 20;
   let toastTimer;
+  const toastQueue = [];
+  let toastActive = false;
   let rendererSaveTimer = 0;
   let activeTextRange = null;
   let activeEditor = null;
@@ -87,40 +95,12 @@
   let focusedNoteId = null;
   let pinnedCaptureData = null;
   let pendingNoteEntrance = null;
-  let dodoIdleTimer = 0;
+  const noteTransitionIntents = new Map();
+  let activeSnapFeedbackKey = null;
   let lastReminderSignature = "";
 
-  const DODO_ANIMATIONS = {
-    sad_enter: { file: "sad_enter.webp", loop: false, hold: true, priority: 2 },
-    sad_loop: { file: "sad_loop.webp", loop: true, priority: 0 },
-    depressed_enter: { file: "depressed_enter.webp", loop: false, hold: true, priority: 2 },
-    depressed_hold: { file: "depressed_enter.webp", loop: false, hold: true, priority: 0, staticFrame: 17 },
-    sleep_enter: { file: "sleep_enter.webp", loop: false, hold: true, priority: 2 },
-    sleep_hold: { file: "sleep_enter.webp", loop: false, hold: true, priority: 0, staticFrame: 17 },
-    idle_breathe: { file: "idle_breathe.webp", loop: true, priority: 0 },
-    blink: { file: "blink.webp", loop: false, priority: 1 },
-    look_around: { file: "look_around.webp", loop: false, priority: 1 },
-    picked_up: { file: "picked_up.webp", loop: false, hold: true, priority: 5 },
-    landing: { file: "landing.webp", loop: false, priority: 5 },
-    pet_response: { file: "pet_response.webp", loop: false, priority: 4 },
-    celebrate: { file: "celebrate.webp", loop: false, priority: 7 },
-  };
-  // Sprite sheets use the same 512px cell, but a few poses were authored with
-  // more transparent breathing room. Normalize their visible height at draw
-  // time so idle/blink/look and action poses read at one consistent size while
-  // keeping the foot baseline locked to the same point.
-  const DODO_FRAME_SCALE = {
-    // These four sheets share the same larger character framing. Reducing them
-    // to 84% brings their visible body height in line with the action sheets.
-    idle_breathe: .84, blink: .84, look_around: .84, pet_response: .84,
-    // Action sheets stay at native scale to preserve their full silhouettes
-    // and avoid clipping high jump / pickup poses.
-    landing: 1, picked_up: 1, celebrate: 1,
-    sad_enter: .74, sad_loop: .86, depressed_enter: .78, depressed_hold: .78,
-    sleep_enter: .77, sleep_hold: .77,
-  };
-  const dodoImages = new Map();
-  const dodoPlayback = { token: 0, raf: 0, name: "", priority: -1, interruptible: true };
+  let dodoController = null;
+  let pendingDodoDock = null;
 
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const nowText = () => new Intl.DateTimeFormat("zh-CN", {
@@ -292,149 +272,51 @@
   }
   applyInterfaceSettings();
 
-  function loadDodoImage(name) {
-    if (dodoImages.has(name)) return dodoImages.get(name);
-    const config = DODO_ANIMATIONS[name];
-    const image = new Image();
-    const ready = new Promise((resolve, reject) => {
-      image.addEventListener("load", () => resolve(image), { once: true });
-      image.addEventListener("error", reject, { once: true });
+  async function initializeDodoV2() {
+    if (noteWindowId || canvasWindow || dodoController) return;
+    try {
+      const api = window.PinDoDodoV2;
+      if (!api?.DodoV2Controller) throw new Error("Dodo V2 controller global unavailable");
+      dodoController = new api.DodoV2Controller({
+      canvas: dodoCanvas,
+      hostElement: assistant,
+      assetBase: "./assets/dodo/v2",
+      configUrl: "./assets/dodo/v2/dodo_animation_state_machine.json",
+      isIdleBlocked: () => document.hidden || state.assistant.tucked || assistant.classList.contains("is-moving") || !assistantPanel.hidden || !dodoNudge.hidden,
+      hasUpcomingReminder: () => !dodoNudge.hidden,
+      onLanded: () => {
+        save();
+        if (pendingDodoDock) { const side = pendingDodoDock; pendingDodoDock = null; tuckDodo(side); }
+      }
     });
-    image.src = `./assets/dodo/animations/${config.file}`;
-    const record = { image, ready }; dodoImages.set(name, record); return record;
+      await dodoController.start();
+      window.__pindoDodoV2Test = Object.freeze({
+        enter: stateName => dodoController.enter(stateName, { reason: "smoke.direct" }),
+        drag: event => dodoController.startDrag(event),
+        release: () => dodoController.releaseDrag(),
+        state: () => dodoController.state,
+        diagnostics: () => window.__pindoDodoV2Diagnostics
+      });
+    }
+    catch (error) {
+      window.__pindoDodoV2StartupError = String(error?.stack || error);
+      console.error("Dodo V2 startup failed", error);
+      dodoController?.destroy?.(); dodoController = null; assistant.classList.remove("dodo-ready");
+    }
   }
 
-  function drawDodoFrame(name, frame, mirror = false) {
-    const record = dodoImages.get(name); if (!record?.image.complete || !record.image.naturalWidth) return;
-    const column = frame % 6, row = Math.floor(frame / 6);
-    dodoContext.clearRect(0, 0, 512, 512);
-    dodoContext.save(); dodoContext.imageSmoothingEnabled = true; dodoContext.imageSmoothingQuality = "high";
-    if (mirror) { dodoContext.translate(512, 0); dodoContext.scale(-1, 1); }
-    const scale = DODO_FRAME_SCALE[name] || 1;
-    const drawSize = 512 * scale;
-    const cellW=DODO_ANIMATIONS[name].naturalGrid?record.image.naturalWidth/6:512;
-    const cellH=DODO_ANIMATIONS[name].naturalGrid?record.image.naturalHeight/3:512;
-    const y=DODO_ANIMATIONS[name].naturalGrid?477-drawSize:512-drawSize;
-    dodoContext.drawImage(record.image, column*cellW,row*cellH,cellW,cellH,(512-drawSize)/2,y,drawSize,drawSize);
-    dodoContext.restore(); assistant.classList.add("dodo-ready");
-  }
-
-  function playDodoAnimation(name, options = {}) {
-    if (noteWindowId) return false;
-    const config = DODO_ANIMATIONS[name]; if (!config) return false;
-    const priority = options.priority ?? config.priority;
-    if (dodoPlayback.name && priority < dodoPlayback.priority) return false;
-    cancelAnimationFrame(dodoPlayback.raf);
-    const token = ++dodoPlayback.token;
-    Object.assign(dodoPlayback, { name, priority, interruptible: options.interruptible ?? true, raf: 0 });
-    assistant.dataset.animation = name;
-    const mirror = options.mirror ?? false;
-    loadDodoImage(name).ready.then(() => {
-      if (token !== dodoPlayback.token) return;
-      if(config.staticFrame!==undefined){drawDodoFrame(name,config.staticFrame,mirror);return;}
-      const startedAt = performance.now(), frameDuration = 1000 / 18;
-      let lastDrawnFrame = -1;
-      const tick = now => {
-        if (token !== dodoPlayback.token) return;
-        const elapsedFrame = Math.floor((now - startedAt) / frameDuration);
-        if (config.loop) {
-          const nextFrame = elapsedFrame % 18;
-          if (nextFrame !== lastDrawnFrame) { drawDodoFrame(name, nextFrame, mirror); lastDrawnFrame = nextFrame; }
-          dodoPlayback.raf = requestAnimationFrame(tick); return;
-        }
-        if (elapsedFrame < 18) {
-          const nextFrame = options.reverse ? 17 - elapsedFrame : elapsedFrame;
-          if (nextFrame !== lastDrawnFrame) { drawDodoFrame(name, nextFrame, mirror); lastDrawnFrame = nextFrame; }
-          dodoPlayback.raf = requestAnimationFrame(tick); return;
-        }
-        drawDodoFrame(name, options.reverse ? 0 : 17, mirror); dodoPlayback.raf = 0;
-        if (config.hold || options.hold) { options.onComplete?.(); return; }
-        Object.assign(dodoPlayback, { name: "", priority: -1, interruptible: true });
-        options.onComplete?.();
-        if (token !== dodoPlayback.token) return;
-        playDodoIdle();
-      };
-      dodoPlayback.raf = requestAnimationFrame(tick);
-    }).catch(() => {
-      if (token === dodoPlayback.token) Object.assign(dodoPlayback, { name: "", priority: -1, interruptible: true, raf: 0 });
-      assistant.classList.remove("dodo-ready");
-    });
+  function playDodoAnimation(name) {
+    if (!dodoController) return false;
+    if (["sad_enter", "sad_loop"].includes(name)) dodoController.disappointed();
+    else if (["depressed_enter", "depressed_hold"].includes(name)) dodoController.disappointed({ severity: "high" });
+    else dodoController.wake();
     return true;
   }
+  function playDodoIdle() { dodoController?.interact(); }
+  function refreshDodoMood() { /* V2 does not infer negative emotion from workload or clock time. */ }
+  function scheduleDodoIdleAction() { /* V2 owns blink, mouth, sit and sleep scheduling. */ }
 
-  let lastPetInteraction=0, dodoAwakeUntil=0, dodoStableMood="idle", dodoMoodSequence=0;
-  function ambientDodoState(){
-    const desired=PinDoDodo.stateFor({count:todayItems().length,stage:Math.max(1,...state.reminderState.activeItems.map(i=>i.stage||1)),hasReminder:!dodoNudge.hidden,idle:assistantPanel.hidden && !assistant.classList.contains("is-dragging") && Date.now()-lastPetInteraction>30000});
-    return desired==="sleep" && Date.now()<dodoAwakeUntil ? "idle" : desired;
-  }
-  function settleDodoMood(mood,token){
-    if(token!==dodoMoodSequence)return;
-    dodoStableMood=mood;
-    if(mood==="sleep")playDodoAnimation("sleep_hold",{priority:0,hold:true});
-    else if(mood==="sad")playDodoAnimation("sad_loop",{priority:0});
-    else if(mood==="depressed")playDodoAnimation("depressed_hold",{priority:0,hold:true});
-    else {playDodoAnimation("idle_breathe",{priority:0});scheduleDodoIdleAction();}
-  }
-  function transitionDodoMood(desired){
-    if(!["idle","sleep","sad","depressed"].includes(desired))desired="idle";
-    if(desired===dodoStableMood){settleDodoMood(desired,++dodoMoodSequence);return;}
-    const token=++dodoMoodSequence,steps=[];
-    if(dodoStableMood==="sleep")steps.push({name:"sleep_enter",reverse:true});
-    else if(dodoStableMood==="sad")steps.push({name:"sad_enter",reverse:true});
-    else if(dodoStableMood==="depressed")steps.push({name:"depressed_enter",reverse:true},{name:"sad_enter",reverse:true});
-    if(desired==="sleep")steps.push({name:"sleep_enter"});
-    else if(desired==="sad")steps.push({name:"sad_enter"});
-    else if(desired==="depressed")steps.push({name:"sad_enter"},{name:"depressed_enter"});
-    const next=()=>{
-      if(token!==dodoMoodSequence)return;
-      const step=steps.shift();
-      if(!step){
-        // Transition sheets intentionally hold their last frame. Release that
-        // temporary priority lock before starting the stable loop; otherwise
-        // priority-0 idle/sleep/sad playback is rejected and Dodo appears
-        // frozen after the state condition has already changed.
-        Object.assign(dodoPlayback,{name:"",priority:-1,interruptible:true,raf:0});
-        settleDodoMood(desired,token);return;
-      }
-      dodoPlayback.priority=-1;
-      playDodoAnimation(step.name,{priority:2,interruptible:false,hold:true,reverse:Boolean(step.reverse),onComplete:next});
-    };
-    clearTimeout(dodoIdleTimer);next();
-  }
-  function refreshDodoMood(){
-    if(noteWindowId||state.assistant.tucked||dodoPlayback.priority>1)return;
-    const desired=ambientDodoState();
-    if(desired===dodoStableMood)return;
-    transitionDodoMood(desired);
-  }
-  assistantMascot.addEventListener("pointerdown",()=>{lastPetInteraction=Date.now();if(dodoStableMood==="sleep"){dodoAwakeUntil=Date.now()+30000;dodoPlayback.priority=-1;transitionDodoMood("idle");}});
-  function playDodoIdle() {
-    if (noteWindowId) return;
-    if (state.assistant.tucked) {
-      // Tucked mode intentionally uses the lightweight static peek asset.
-      // Keeping the canvas hidden also prevents a stale transition frame from
-      // flashing over the side-docked assistant.
-      cancelAnimationFrame(dodoPlayback.raf);
-      dodoPlayback.token++;
-      Object.assign(dodoPlayback, { name: "", priority: -1, interruptible: true, raf: 0 });
-      dodoContext.clearRect(0, 0, 512, 512);
-      assistant.classList.remove("dodo-ready");
-      dodoStableMood="idle";
-      return;
-    }
-    transitionDodoMood(ambientDodoState());
-  }
-
-  function scheduleDodoIdleAction() {
-    clearTimeout(dodoIdleTimer);
-    dodoIdleTimer = setTimeout(() => {
-      const busy = document.hidden || state.assistant.tucked || assistant.classList.contains("is-moving") || !assistantPanel.hidden || !dodoNudge.hidden;
-      if (busy) { scheduleDodoIdleAction(); return; }
-      const choice = Math.random();
-      if (choice < .58) playDodoAnimation("blink", { onComplete: scheduleDodoIdleAction });
-      else playDodoAnimation("look_around", { onComplete: scheduleDodoIdleAction });
-    }, 4400 + Math.random() * 4200);
-  }
+  initializeDodoV2();
 
   function tuckDodo(side) {
     assistantPanel.hidden = true; state.assistant.tuckSide = side; state.assistant.tucked = true;
@@ -452,9 +334,6 @@
     playDodoIdle();
   }
 
-  // Warm only the common idle assets. Mood sheets are decoded lazily when a
-  // state is actually entered, reducing startup work and memory pressure.
-  if (!noteWindowId && !canvasWindow) ["idle_breathe", "blink", "look_around"].forEach(loadDodoImage);
   function noteById(id) { return state.notes.find(note => note.id === id); }
   function visibleNoteById(id) { const note = noteById(id); return note?.mode !== "bookmark" ? note : null; }
   function attachmentByChild(noteId) { if (noteWindowId && noteId === noteWindowId && nativeContext.parentId) return {parentId:nativeContext.parentId,childId:noteId}; return state.attachments.find(link => link.childId === noteId); }
@@ -491,13 +370,34 @@
       const child = noteById(link.childId); if (!child) return;
       child.x = parent.x; child.y = parent.y + parent.h; child.w = parent.w; child.mode = parent.mode;
       const childEl = noteLayer.querySelector(`[data-id="${child.id}"]`);
-      if (childEl) { childEl.style.left = `${child.x}px`; childEl.style.top = `${child.y}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
+      if (childEl) { childEl.style.left = `${canvasLocalX(child.x)}px`; childEl.style.top = `${canvasLocalY(child.y)}px`; childEl.style.width = `${child.w}px`; childEl.style.height = `${child.h}px`; }
       syncAttachedStack(child.id);
     });
   }
   function showToast(message) {
-    toast.textContent = message; toast.classList.add("show"); clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 1700);
+    const value = String(message || "").trim();
+    if (!value || toastQueue.at(-1) === value || (toastActive && toast.textContent === value)) return;
+    toastQueue.push(value);
+    if (toastQueue.length > 4) toastQueue.splice(0, toastQueue.length - 4);
+    pumpToastQueue();
+  }
+
+  function pumpToastQueue() {
+    if (toastActive || !toastQueue.length) return;
+    toastActive = true;
+    toast.textContent = toastQueue.shift();
+    toast.classList.remove("leaving");
+    requestAnimationFrame(() => toast.classList.add("show"));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.add("leaving");
+      toast.classList.remove("show");
+      setTimeout(() => {
+        toast.classList.remove("leaving");
+        toastActive = false;
+        pumpToastQueue();
+      }, MOTION.normal);
+    }, 1700);
   }
 
   function showNearTip(anchor, message) {
@@ -512,8 +412,7 @@
   }
 
   function render(persist = true) {
-    textToolbar.hidden = true;
-    activeTextRange = activeEditor = activeNote = null;
+    clearPersistentSelection();
     state.attachments = state.attachments.filter(link => noteById(link.parentId) && noteById(link.childId));
     state.notes.filter(note => note.mode !== "bookmark" && !attachmentByChild(note.id)).forEach(note => syncAttachedStack(note.id));
     noteLayer.replaceChildren(); bookmarkDock.replaceChildren();
@@ -548,10 +447,11 @@
     const title = note.title?.trim() || "";
     item.innerHTML = `<button class="bookmark-icon note-icon" title="更换图标">${noteIcon(note.icon)}</button><button class="bookmark-open" title="展开便签"><strong>${escapeHtml(shortTitle(title))}</strong></button>${bookmarkPreview(note)}`;
     item.querySelector(".bookmark-icon").addEventListener("click", e => { e.stopPropagation(); showNoteIconMenu(e.currentTarget, note); });
-    item.querySelector(".bookmark-open").addEventListener("click", () => {
-      note.mode = note.previousMode || "desktop";
-      if (note.restoreSize) { note.w = note.restoreSize.w; note.h = note.restoreSize.h; }
-      render(); showToast("便签已按原尺寸展开");
+    item.querySelector(".bookmark-open").addEventListener("click", () => transitionBookmarkToNote(note));
+    item.addEventListener("pointerdown", () => {
+      item.classList.add("is-selected");
+      window.addEventListener("pointerup", () => item.classList.remove("is-selected"), { once: true });
+      window.addEventListener("pointercancel", () => item.classList.remove("is-selected"), { once: true });
     });
     item.addEventListener("dragstart", event => {
       event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", note.id);
@@ -621,7 +521,7 @@
     const typeTool = note.type === "quick" ? `<button data-action="capture" class="type-tool-button" title="截图识别文字">${icons.scan}</button>` : note.type === "todo" || note.type === "timeline" ? `<button data-action="sort-time" class="type-tool-button" title="按时间从早到晚排序">${icons.sort}</button>` : "";
     const templateFab = note.type !== "quick" && note.type !== "organizer" && !note.userEdited ? `<button class="template-fab" data-action="template-switch" title="切换模板">${icons.swap}</button>` : "";
     const organizer = note.type === "organizer";
-    el.style.cssText += `left:${noteWindowId ? 0 : note.x}px;top:${noteWindowId ? 0 : note.y}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
+    el.style.cssText += `left:${noteWindowId ? 0 : canvasLocalX(note.x)}px;top:${noteWindowId ? 0 : canvasLocalY(note.y)}px;width:${noteWindowId ? "100%" : `${note.w}px`};height:${noteWindowId ? "100%" : `${note.h}px`};--note-color:${note.color};--pin-color:${pinColor};--icon-color:${note.iconColor};--note-content-font-size:${note.fontSize}px;z-index:${focusedNoteId === note.id ? 6500 : note.mode === "top" ? 5000 + note.z : note.z}`;
     el.innerHTML = `
       <header class="note-header">
         <div class="note-title-wrap">${organizer ? `<span class="organizer-title-icon">${icons.folder}</span>` : `<button class="note-kind-mark note-icon" title="更换标题图标">${noteIcon(note.icon)}</button>`}<div class="note-title" contenteditable="false" spellcheck="false" aria-label="便签标题" data-placeholder="双击输入标题" title="双击编辑 · 最多30个字符">${note.titleHtml || escapeHtml(note.title || "")}</div></div>
@@ -643,8 +543,14 @@
       el.style.setProperty("--spawn-y", `${origin.y - (desktopRect.top + note.y + note.h / 2)}px`);
       el.classList.add("note-spawn");
       el.addEventListener("animationend", () => el.classList.remove("note-spawn"), { once: true });
+      focusCreatedNoteImmediately(el, note);
       pendingNoteEntrance = null;
     }
+  }
+
+  function focusCreatedNoteImmediately(element, note) {
+    const editor = element.querySelector(note.type === "quick" ? ".quick-editor" : note.type === "todo" ? ".todo-add" : note.type === "timeline" ? ".timeline-add" : ".note-title");
+    requestAnimationFrame(() => editor?.focus?.({ preventScroll: true }));
   }
 
   function renderBody(el, note) {
@@ -854,17 +760,67 @@
     note.todos.push(todo); render();
   }
 
+  function createListPlaceholder(source) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "list-drop-placeholder";
+    placeholder.style.height = `${Math.max(28, source.getBoundingClientRect().height)}px`;
+    return placeholder;
+  }
+
+  function animateListReflow(container, mutation) {
+    if (!container) { mutation(); return; }
+    const before = new Map([...container.children].map(element => [element, element.getBoundingClientRect()]));
+    mutation();
+    [...container.children].forEach(element => {
+      const first = before.get(element), last = element.getBoundingClientRect();
+      if (!first || (!first.top && !first.left)) return;
+      const dx = first.left - last.left, dy = first.top - last.top;
+      if (!dx && !dy) return;
+      element.classList.add("list-reflow");
+      const animation = element.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: MOTION.normal, easing: "cubic-bezier(.2,.72,.2,1)" });
+      const cleanup = () => element.classList.remove("list-reflow");
+      animation.finished.then(cleanup, cleanup);
+    });
+  }
+
+  function placeListPlaceholder(placeholder, candidate, after) {
+    const container = candidate?.parentElement;
+    if (!container) return;
+    animateListReflow(container, () => container.insertBefore(placeholder, after ? candidate.nextSibling : candidate));
+  }
+
+  function todoDropSlot(items, movingId, { targetId = "", after = false, quadrant = "", previousId = "", nextId = "" } = {}) {
+    return PinDoTodoReorder.resolveTodoDrop(items, movingId, { targetId, after, quadrant, previousId, nextId });
+  }
+
+  function placeholderPreviousTodoId(placeholder) {
+    let sibling = placeholder?.previousElementSibling;
+    while (sibling && !sibling.matches?.(".todo-row")) sibling = sibling.previousElementSibling;
+    return sibling?.dataset.todo || "";
+  }
+
+  function placeholderNextTodoId(placeholder) {
+    let sibling = placeholder?.nextElementSibling;
+    while (sibling && !sibling.matches?.(".todo-row")) sibling = sibling.nextElementSibling;
+    return sibling?.dataset.todo || "";
+  }
+
   function enableTodoReorder(row, note, todo) {
     row.addEventListener("pointerdown", event => {
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const startX = event.clientX, startY = event.clientY, rect = row.getBoundingClientRect();
       const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      let ghost = null, targetRow = null, targetList = null, insertAfter = false;
+      let ghost = null, placeholder = null, targetList = null, currentSlotKey = "";
+      const scrollContainer = row.closest(".note-body");
+      const commit = PinDoTodoReorder.createDropCommit(slot => {
+        const result = PinDoTodoReorder.applyTodoDrop(note.todos, todo.id, slot);
+        if (!result.changed) { render(false); return; }
+        note.todos = result.items; render(); showToast("待办顺序已调整");
+      });
       // Capture only after a drag actually starts, preserving double-click targets.
       const clearTarget = () => {
-        targetRow?.classList.remove("todo-drop-before", "todo-drop-after");
         targetList?.classList.remove("todo-drop-zone");
-        targetRow = null; targetList = null;
+        targetList = null;
       };
       const move = pointer => {
         if (!ghost && Math.hypot(pointer.clientX - startX, pointer.clientY - startY) < 5) return;
@@ -872,57 +828,62 @@
           row.setPointerCapture(event.pointerId);
           ghost = row.cloneNode(true); ghost.className = `${row.className} todo-drag-ghost`;
           ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`;
-          document.body.appendChild(ghost); row.classList.add("todo-drag-source");
+          document.body.appendChild(ghost);
+          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row);
+          row.classList.add("todo-drag-source");
         }
         ghost.style.left = `${pointer.clientX - offsetX}px`; ghost.style.top = `${pointer.clientY - offsetY}px`;
-        clearTarget();
+        if(scrollContainer){const scrollRect=scrollContainer.getBoundingClientRect(),delta=PinDoTodoReorder.autoScrollDelta(pointer.clientY,scrollRect.top,scrollRect.bottom);if(delta)scrollContainer.scrollTop+=delta;}
         const hit = document.elementFromPoint(pointer.clientX, pointer.clientY);
         const noteElement = hit?.closest(".note");
         if (noteElement?.dataset.id !== note.id) return;
-        const candidate = hit?.closest(".todo-row");
-        if (candidate === row) return;
-        if (candidate && candidate !== row) {
-          targetRow = candidate;
-          const candidateRect = candidate.getBoundingClientRect();
-          insertAfter = pointer.clientY > candidateRect.top + candidateRect.height / 2;
-          candidate.classList.add(insertAfter ? "todo-drop-after" : "todo-drop-before");
-          return;
+        const nextList = hit?.closest(".todo-list,.quadrant-list") || hit?.closest(".todo-row")?.parentElement;
+        if (!nextList?.matches?.(".todo-list,.quadrant-list")) return;
+        if(targetList!==nextList){clearTarget();targetList=nextList;targetList.classList.add("todo-drop-zone");}
+        if (targetList) {
+          const rows=[...targetList.querySelectorAll(".todo-row")].filter(entry=>entry!==row).map(entry=>{const box=entry.getBoundingClientRect();return{id:entry.dataset.todo,top:box.top,bottom:box.bottom,element:entry};});
+          const slot=PinDoTodoReorder.slotFromGeometry(rows,pointer.clientY),slotKey=`${targetList.dataset.quadrantList||""}:${slot.previousId}:${slot.nextId}`;
+          if(slotKey===currentSlotKey)return;currentSlotKey=slotKey;
+          const next=rows.find(entry=>entry.id===slot.nextId)?.element;
+          animateListReflow(targetList,()=>targetList.insertBefore(placeholder,next||null));
         }
-        targetList = hit?.closest(".todo-list,.quadrant-list");
-        targetList?.classList.add("todo-drop-zone");
       };
-      const up = () => {
-        row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
+      const up = event => {
+        row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up); row.removeEventListener("lostpointercapture", up); window.removeEventListener("blur", up);
         if (!ghost) return;
-        const targetId = targetRow?.dataset.todo;
-        const targetQuadrant = targetRow
-          ? note.todos.find(item => item.id === targetId)?.quadrant || ""
-          : targetList?.dataset.quadrantList || "";
-        clearTarget(); ghost.remove(); row.classList.remove("todo-drag-source");
-        const from = note.todos.findIndex(item => item.id === todo.id);
-        if (from < 0) return;
-        const [moving] = note.todos.splice(from, 1); moving.quadrant = targetQuadrant;
-        if (targetId) {
-          const targetIndex = note.todos.findIndex(item => item.id === targetId);
-          note.todos.splice(Math.max(0, targetIndex + (insertAfter ? 1 : 0)), 0, moving);
-        } else if (targetList) {
-          const matching = note.todos.map((item, index) => ({ item, index })).filter(entry => (entry.item.quadrant || "") === targetQuadrant);
-          note.todos.splice(matching.length ? matching.at(-1).index + 1 : note.todos.length, 0, moving);
-        } else note.todos.splice(from, 0, moving);
-        render(); showToast("待办顺序已调整");
+        const validTarget=targetList;
+        const slot={quadrant:validTarget?.dataset.quadrantList||"",previousId:placeholderPreviousTodoId(placeholder),nextId:placeholderNextTodoId(placeholder)};
+        clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("todo-drag-source");
+        if (event.type !== "pointerup" || !validTarget) { commit.cancel(); render(false); return; }
+        commit.finish(slot);
       };
-      row.addEventListener("pointermove", move); row.addEventListener("pointerup", up); row.addEventListener("pointercancel", up);
+      row.addEventListener("pointermove", move); row.addEventListener("pointerup", up); row.addEventListener("pointercancel", up); row.addEventListener("lostpointercapture", up); window.addEventListener("blur", up,{once:true});
     });
   }
 
-  function completeTodo(note, id) {
+  function commitTodoCompletion(note, id) {
     const index = note.todos.findIndex(item => item.id === id); if (index < 0) return;
     state.reminderState.activeItems = state.reminderState.activeItems.filter(active => {
       const matches = active.type === "todo" && active.noteId === note.id && active.itemId === id;
       if (matches) state.reminderState.handled[active.key] = true;
       return !matches;
     });
-    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); note.history.unshift(item); render();
+    const [item] = note.todos.splice(index, 1); item.completedAt = nowText(); if(PinDoContent.hasTodoContent(item))note.history.unshift(item); save();
+    return item;
+  }
+
+  function animateTodoCompletion(row, done) {
+    if (!row) { done(); return; }
+    row.classList.add("is-completing");
+    row.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, MOTION.normal + 40);
+  }
+
+  function completeTodo(note, id) {
+    const row = noteLayer.querySelector(`[data-id="${note.id}"] [data-todo="${id}"]`);
+    const item = commitTodoCompletion(note, id); if (!item) return;
+    let finished = false;
+    animateTodoCompletion(row, () => { if (finished) return; finished = true; render(false); });
     playDodoAnimation("celebrate", { priority: 7, interruptible: false });
     showToast(`已完成“${item.text || "待办"}”`);
   }
@@ -983,7 +944,7 @@
       if (event.button !== 0 || event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const startX = event.clientX, startY = event.clientY, rect = row.getBoundingClientRect();
       const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
-      let ghost = null, targetRow = null, insertAfter = false;
+      let ghost = null, placeholder = null, targetRow = null, insertAfter = false;
       // Capture only after a drag actually starts, preserving double-click targets.
       const clearTarget = () => {
         targetRow?.classList.remove("timeline-drop-before", "timeline-drop-after");
@@ -996,6 +957,7 @@
           ghost = row.cloneNode(true); ghost.className = `${row.className} timeline-drag-ghost`;
           ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`;
           document.body.appendChild(ghost); row.classList.add("timeline-drag-source");
+          placeholder = createListPlaceholder(row); row.parentElement?.insertBefore(placeholder, row.nextSibling);
         }
         ghost.style.left = `${pointer.clientX - offsetX}px`; ghost.style.top = `${pointer.clientY - offsetY}px`;
         clearTarget();
@@ -1016,12 +978,14 @@
         const candidateRect = candidate.getBoundingClientRect();
         insertAfter = pointer.clientY > candidateRect.top + candidateRect.height / 2;
         candidate.classList.add(insertAfter ? "timeline-drop-after" : "timeline-drop-before");
+        placeListPlaceholder(placeholder, candidate, insertAfter);
       };
-      const up = () => {
+      const up = event => {
         row.removeEventListener("pointermove", move); row.removeEventListener("pointerup", up); row.removeEventListener("pointercancel", up);
         if (!ghost) return;
         const targetId = targetRow?.dataset.eventId;
-        clearTarget(); ghost.remove(); row.classList.remove("timeline-drag-source");
+        clearTarget(); ghost.remove(); placeholder?.remove(); row.classList.remove("timeline-drag-source");
+        if (event.type !== "pointerup") return;
         if (!targetId || targetId === item.id) return;
         const from = note.events.findIndex(entry => entry.id === item.id);
         if (from < 0) return;
@@ -1203,35 +1167,56 @@
     Object.assign(note, { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height });
   }
 
+  function beginNotePickup(element) {
+    element.classList.remove("drop-settling");
+    element.classList.add("is-dragging");
+  }
+
+  function settleNoteDrop(element) {
+    element.classList.remove("is-dragging");
+    element.classList.add("drop-settling");
+    setTimeout(() => element.classList.remove("drop-settling"), MOTION.normal);
+  }
+
+  function isSnapDetached(snap, x, y) {
+    return !snap || Math.hypot(x - snap.x, y - snap.y) > DETACH_THRESHOLD;
+  }
+
   function enableDrag(el, handle, note) {
     handle.addEventListener("pointerdown", event => {
       if (event.target.closest("button,select,[contenteditable='true'],input:not([readonly])")) return;
       const wasAttached = Boolean(attachmentByChild(note.id));
-      if (wasAttached) { detachAttachment(note.id); note.locked = false; el.classList.remove("is-attached-child", "is-locked"); }
       if (!wasAttached && note.locked) { showNearTip(el, "便签已钉住，请在更多菜单中选择“拔出”"); return; }
       if (noteWindowId) {
         nativeGesture(event, handle, el, "move", bounds => applyNativeNoteBounds(note, bounds), () => refreshNativeNote());
         return;
       }
       const movingIds = attachedTreeIds(note.id), movingNotes = movingIds.map(noteById).filter(Boolean);
-      event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-dragging"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
+      event.preventDefault(); handle.setPointerCapture(event.pointerId); beginNotePickup(el); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
       movingNotes.forEach(item => { item.z = ++zCounter; noteLayer.querySelector(`[data-id="${item.id}"]`)?.classList.add("is-group-moving"); });
       const startX = event.clientX, startY = event.clientY, startLeft = note.x, startTop = note.y;
       const origins = new Map(movingNotes.map(item => [item.id, { x: item.x, y: item.y }]));
-      let pendingSnap = null;
+      let pendingSnap = null, detached = !wasAttached;
       const move = e => {
-        clearSnapFeedback();
         let dx = e.clientX - startX, dy = e.clientY - startY;
+        if (!detached) {
+          if (Math.hypot(dx, dy) < DETACH_THRESHOLD) return;
+          detachAttachment(note.id); note.locked = false; detached = true;
+          el.classList.remove("is-attached-child", "is-locked");
+        }
         const minX = Math.min(...movingNotes.map(item => origins.get(item.id).x));
         const minY = Math.min(...movingNotes.map(item => origins.get(item.id).y));
         const maxX = Math.max(...movingNotes.map(item => origins.get(item.id).x + item.w));
         const maxY = Math.max(...movingNotes.map(item => origins.get(item.id).y + item.h));
         if (!noteWindowId) {
-          dx = clamp(dx, -minX, desktop.clientWidth - maxX);
-          dy = clamp(dy, 34 - minY, desktop.clientHeight - maxY);
+          const minCanvasX = canvasWindow ? canvasOriginX : 0, minCanvasY = canvasWindow ? canvasOriginY : 0;
+          dx = clamp(dx, minCanvasX - minX, minCanvasX + desktop.clientWidth - maxX);
+          dy = clamp(dy, minCanvasY + 34 - minY, minCanvasY + desktop.clientHeight - maxY);
         }
         const proposedX = startLeft + dx, proposedY = startTop + dy;
-        pendingSnap = findVerticalSnap(note, proposedX, proposedY, new Set(movingIds));
+        const candidateSnap = findVerticalSnap(note, proposedX, proposedY, new Set(movingIds));
+        if (candidateSnap) pendingSnap = candidateSnap;
+        else if (isSnapDetached(pendingSnap, proposedX, proposedY)) pendingSnap = null;
         if (pendingSnap) {
           const snappedDx = dx + pendingSnap.x - proposedX, snappedDy = dy + pendingSnap.y - proposedY;
           const fitsDesktop = minX + snappedDx >= 0 && maxX + snappedDx <= desktop.clientWidth && minY + snappedDy >= 34 && maxY + snappedDy <= desktop.clientHeight;
@@ -1240,33 +1225,34 @@
         movingNotes.forEach(item => {
           const origin = origins.get(item.id); item.x = origin.x + dx; item.y = origin.y + dy;
           const itemEl = noteLayer.querySelector(`[data-id="${item.id}"]`);
-          if (itemEl) { itemEl.style.left = `${item.x}px`; itemEl.style.top = `${item.y}px`; itemEl.style.zIndex = 10000 + item.z; }
+          if (itemEl) { itemEl.style.left = `${canvasLocalX(item.x)}px`; itemEl.style.top = `${canvasLocalY(item.y)}px`; itemEl.style.zIndex = 10000 + item.z; }
         });
-        if (pendingSnap && !noteWindowId) showSnapFeedback(pendingSnap);
+        if (pendingSnap && !noteWindowId) showSnapFeedback(pendingSnap); else clearSnapFeedback();
         if (noteWindowId) window.pindoNote?.setBounds({ x: note.x, y: note.y, width: note.w, height: note.h });
         const nearDock = !noteWindowId && note.type !== "organizer" && desktop.clientWidth - (note.x + el.offsetWidth) < 42;
         dockTarget.querySelector("span").textContent = "松开后收纳";
         el.classList.toggle("near-dock", nearDock); dockTarget.classList.toggle("active", nearDock);
       };
-      const up = () => {
-        const shouldDock = el.classList.contains("near-dock");
-        el.classList.remove("is-dragging", "near-dock"); dockTarget.classList.remove("active"); clearSnapFeedback();
+      const up = event => {
+        const committed = event.type === "pointerup";
+        const shouldDock = committed && el.classList.contains("near-dock");
+        settleNoteDrop(el); el.classList.remove("near-dock"); dockTarget.classList.remove("active"); clearSnapFeedback();
         movingNotes.forEach(item => {
           const itemEl = noteLayer.querySelector(`[data-id="${item.id}"]`);
           if (itemEl) { itemEl.classList.remove("is-group-moving"); itemEl.style.zIndex = item.id === focusedNoteId ? 6500 : item.mode === "top" ? 5000 + item.z : item.z; }
         });
-        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up); handle.removeEventListener("lostpointercapture", up);
         if (shouldDock) collapseNote(note, "已吸附并收纳到右侧");
-        else if (pendingSnap && attachBelow(pendingSnap.parentId, pendingSnap.childId)) { render(); showToast("便签已上下吸附，下方便签将跟随上方便签"); }
+        else if (committed && pendingSnap && attachBelow(pendingSnap.parentId, pendingSnap.childId)) { render(); showToast("便签已上下吸附，下方便签将跟随上方便签"); }
         else { if (wasAttached) render(); else save(); }
       };
-      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up); handle.addEventListener("lostpointercapture", up);
     });
   }
 
   function findVerticalSnap(note, x, y, movingIds) {
     if (note.type === "organizer") return null;
-    const threshold = 20, candidates = [];
+    const threshold = SNAP_THRESHOLD, candidates = [];
     state.notes.filter(target => target.type !== "organizer" && target.mode !== "bookmark" && !movingIds.has(target.id)).forEach(target => {
       const horizontalOverlap = Math.min(x + note.w, target.x + target.w) - Math.max(x, target.x);
       if (horizontalOverlap > 34) {
@@ -1282,15 +1268,25 @@
   }
 
   function showSnapFeedback(snap) {
+    const key = `${snap.parentId}:${snap.childId}:${snap.x}:${snap.y}`;
+    if (activeSnapFeedbackKey === key && noteLayer.querySelector(".note-snap-ghost")) return;
+    clearSnapFeedback(); activeSnapFeedbackKey = key;
     noteLayer.querySelector(`[data-id="${snap.target.id}"]`)?.classList.add("snap-target");
+    const dragged = noteById(snap.childId === snap.target.id ? snap.parentId : snap.childId);
+    if (dragged) {
+      const ghost = document.createElement("div"); ghost.className = "note-snap-ghost";
+      ghost.style.cssText = `left:${canvasLocalX(snap.x)}px;top:${canvasLocalY(snap.y)}px;width:${dragged.w}px;height:${dragged.h}px`;
+      noteLayer.appendChild(ghost);
+    }
     const parent = noteById(snap.parentId), guide = document.createElement("div"); guide.className = "note-snap-guide horizontal";
     const inset = Math.max(24, Math.min(48, (parent?.w || snap.target.w) * .1));
-    guide.style.cssText = `left:${(parent?.x ?? snap.x) + inset}px;top:${snap.seamY - 1}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
+    guide.style.cssText = `left:${canvasLocalX((parent?.x ?? snap.x) + inset)}px;top:${canvasLocalY(snap.seamY - 1)}px;width:${Math.max(80, (parent?.w || snap.target.w) - inset * 2)}px`;
     noteLayer.appendChild(guide);
   }
 
   function clearSnapFeedback() {
-    noteLayer.querySelectorAll(".note-snap-guide").forEach(item => item.remove());
+    activeSnapFeedbackKey = null;
+    noteLayer.querySelectorAll(".note-snap-guide,.note-snap-ghost").forEach(item => item.remove());
     noteLayer.querySelectorAll(".note.snap-target").forEach(item => item.classList.remove("snap-target"));
   }
 
@@ -1307,9 +1303,11 @@
       event.preventDefault(); handle.setPointerCapture(event.pointerId); el.classList.add("is-resizing"); note.z = ++zCounter; el.style.zIndex = 10000 + note.z;
       const startX = event.clientX, startY = event.clientY, startW = note.w, startH = note.h;
       const move = e => {
-        let nextW = clamp(startW + e.clientX - startX, 280, desktop.clientWidth - note.x);
+        const canvasRight = (canvasWindow ? canvasOriginX : 0) + desktop.clientWidth;
+        const canvasBottom = (canvasWindow ? canvasOriginY : 0) + desktop.clientHeight;
+        let nextW = clamp(startW + e.clientX - startX, 280, canvasRight - note.x);
         const attachedIds = new Set(attachedTreeIds(note.id)), stackCount = attachedIds.size;
-        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((desktop.clientHeight - note.y) / stackCount)));
+        let nextH = clamp(startH + e.clientY - startY, 210, Math.max(210, Math.floor((canvasBottom - note.y) / stackCount)));
         const visibleOthers = state.notes.filter(item => !attachedIds.has(item.id) && item.mode !== "bookmark");
         const widthMatch = visibleOthers.map(item => ({ item, gap: Math.abs(item.w - nextW) })).filter(match => match.gap <= 12).sort((a, b) => a.gap - b.gap)[0];
         clearSizeMatchFeedback();
@@ -1342,18 +1340,53 @@
       if (active.noteId !== note.id) return true;
       state.reminderState.handled[active.key] = true; return false;
     });
+    const keepHistory = PinDoContent.hasUserContent(note);
     const snapshot = structuredClone(note); snapshot.deletedAt = nowText();
     removeAttachmentsFor(note.id);
-    state.recycleBin.unshift(snapshot); state.notes = state.notes.filter(item => item.id !== note.id);
-    render(); showToast(`“${note.title || "未命名便签"}”已移入回收站`);
+    if(keepHistory)state.recycleBin.unshift(snapshot); state.notes = state.notes.filter(item => item.id !== note.id);
+    save();
+    animateNoteRemoval(note.id, () => render(false));
+    showToast(keepHistory?`“${note.title || "未命名便签"}”已移入回收站`:"空便签已删除");
   }
 
-  function collapseNote(note, message = "已收纳到桌面边缘") {
+  function animateNoteRemoval(noteId, done) {
+    const element = noteLayer.querySelector(`[data-id="${noteId}"]`);
+    if (!element) { done(); return; }
+    let finished = false;
+    const complete = () => { if (finished) return; finished = true; done(); };
+    element.classList.add("is-removing");
+    element.addEventListener("transitionend", complete, { once: true });
+    setTimeout(complete, MOTION.normal + 40);
+  }
+
+  function transitionNoteToBookmark(note, message = "已收纳到桌面边缘") {
+    const intent = (noteTransitionIntents.get(note.id) || 0) + 1;
+    noteTransitionIntents.set(note.id, intent);
     removeAttachmentsFor(note.id);
     note.previousMode = note.mode;
     note.restoreSize = { w: note.w, h: note.h };
     note.mode = "bookmark";
-    render(); showToast(message);
+    save();
+    const element = noteLayer.querySelector(`[data-id="${note.id}"]`);
+    if (!element) { render(false); showToast(message); return; }
+    element.classList.add("is-collapsing");
+    setTimeout(() => {
+      if (noteTransitionIntents.get(note.id) !== intent || note.mode !== "bookmark") return;
+      render(false); showToast(message);
+    }, MOTION.slow);
+  }
+
+  function transitionBookmarkToNote(note) {
+    const intent = (noteTransitionIntents.get(note.id) || 0) + 1;
+    noteTransitionIntents.set(note.id, intent);
+    note.mode = note.previousMode || "desktop";
+    if (note.restoreSize) { note.w = note.restoreSize.w; note.h = note.restoreSize.h; }
+    pendingNoteEntrance = { id: note.id, x: innerWidth - 24, y: clamp(note.y + note.h / 2, 24, innerHeight - 24) };
+    save(); render(false); showToast("便签已按原尺寸展开");
+  }
+
+  function collapseNote(note, message = "已收纳到桌面边缘") {
+    transitionNoteToBookmark(note, message);
   }
 
   function showNoteMenu(anchor, note) {
@@ -1598,7 +1631,7 @@
 
   function dismissTransientUI() {
     document.querySelectorAll(".mini-popover,.near-tip").forEach(el=>el.remove());
-    textToolbar.hidden=true; activeTextRange=null;
+    clearPersistentSelection();
     assistantPanel.hidden=true; closeSettings(); focusedNoteId=null;
     document.querySelectorAll(".note.focused").forEach(el=>el.classList.remove("focused"));
     window.getSelection()?.removeAllRanges();
@@ -1608,8 +1641,9 @@
   document.addEventListener("pointerdown",event=>{
     if(controlWindow && event.target.closest(".mascot-button,.assistant-panel,.dodo-nudge,.settings-dialog"))window.pindoNative.command("focus-control");
     if(!event.target.closest(".mascot-button,.assistant-panel,.dodo-nudge"))assistantPanel.hidden=true;
-    if(!event.target.closest(".note,.text-toolbar,.mini-popover")){textToolbar.hidden=true;activeTextRange=null;}
+    if(!event.target.closest(".note,.text-toolbar,.mini-popover")) clearPersistentSelection();
   });
+  document.addEventListener("keydown", event => { if (event.key === "Escape") clearPersistentSelection(); });
   function showMiniPopover(anchor, content, binder) {
     document.querySelectorAll(".mini-popover").forEach(el => el.remove());
     const pop = document.createElement("div"); pop.className = "mini-popover"; pop.innerHTML = content; document.body.appendChild(pop);
@@ -1683,6 +1717,28 @@
   function escapeHtml(value = "") { return String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
   function attr(value = "") { return escapeHtml(value); }
 
+  function highlightNote(noteId, options = {}) {
+    const element = noteLayer.querySelector(`[data-id="${CSS.escape(String(noteId || ""))}"]`);
+    if (!element) return false;
+    element.classList.remove("is-highlighted");
+    void element.offsetWidth;
+    element.classList.add("is-highlighted");
+    setTimeout(() => element.classList.remove("is-highlighted"), options.duration || 900);
+    return true;
+  }
+  window.pindoInteraction = Object.freeze({ highlightNote });
+
+  function paintPersistentSelection() {
+    if (!activeTextRange || !window.CSS?.highlights || typeof window.Highlight !== "function") return;
+    CSS.highlights.set("pindo-selection", new Highlight(activeTextRange));
+  }
+
+  function clearPersistentSelection() {
+    CSS.highlights?.delete?.("pindo-selection");
+    textToolbar.hidden = true;
+    activeTextRange = activeEditor = activeNote = null;
+  }
+
   function updateTextToolbar() {
     if(!document.hasFocus()){textToolbar.hidden=true;return;}
     const selection = window.getSelection();
@@ -1700,6 +1756,7 @@
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
     activeTextRange = range.cloneRange(); activeEditor = editor; activeNote = note;
+    paintPersistentSelection();
     textToolbar.hidden = false;
     const width = textToolbar.offsetWidth;
     const left = clamp(rect.left + rect.width / 2 - width / 2, 10, innerWidth - width - 10);
@@ -1722,6 +1779,7 @@
     const selection = window.getSelection(); selection.removeAllRanges();
     const nextRange = document.createRange(); nextRange.selectNodeContents(span); selection.addRange(nextRange);
     activeTextRange = nextRange.cloneRange();
+    paintPersistentSelection();
     if (activeEditor.classList.contains("note-title")) { activeNote.title = activeEditor.innerText.trim(); activeNote.titleHtml = activeEditor.innerHTML; }
     else if (activeEditor.matches(".todo-text,.timeline-text")) {
       const item = activeEditor.matches(".todo-text") ? activeNote.todos.find(item => item.id === activeEditor.closest(".todo-row").dataset.todo) : activeNote.events.find(item => item.id === activeEditor.closest(".timeline-row").dataset.eventId);
@@ -1750,6 +1808,7 @@
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(activeTextRange);
     document.execCommand(command, false, null);
     if (selection.rangeCount) activeTextRange = selection.getRangeAt(0).cloneRange();
+    paintPersistentSelection();
     persistActiveEditor();
   }
 
@@ -1944,50 +2003,49 @@
 
   let assistantWasDragged = false;
   assistantMascot.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    if (controlWindow) {
-      assistantWasDragged = false;
-      let pickedUp = false;
-      nativeGesture(event, assistantMascot, assistant, "move", () => {}, moved => {
-        assistantWasDragged = moved;
-        if (moved) playDodoAnimation("landing", { priority: 5, interruptible: false, onComplete: playDodoIdle });
-        else playDodoIdle();
-      }, () => {
-        assistantWasDragged = true;
-        if (!pickedUp) { pickedUp = true; clearTimeout(dodoIdleTimer); playDodoAnimation("picked_up", { priority: 5, interruptible: false }); }
-      });
-      return;
-    }
-    assistantWasDragged = false; let pickupStarted = false;
-    clearTimeout(dodoIdleTimer);
-    const startX = event.clientX, startY = event.clientY, startLeft = state.assistant.x, startTop = state.assistant.y;
-    assistantMascot.setPointerCapture(event.pointerId); assistant.classList.add("is-moving");
+    if (event.button !== 0 || !dodoController) return;
+    assistantWasDragged = false; dodoController.pointer(true);
+    const pointerId = event.pointerId, startX = event.screenX, startY = event.screenY;
+    const startLeft = state.assistant.x, startTop = state.assistant.y;
+    let started = false, nativeStarted = false;
+    const begin = triggerEvent => {
+      if (started || !dodoController.startDrag(triggerEvent)) return;
+      started = true; assistantWasDragged = true; assistant.classList.add("is-moving");
+      if (assistantMascot.setPointerCapture && !assistantMascot.hasPointerCapture(pointerId)) assistantMascot.setPointerCapture(pointerId);
+      if (controlWindow) nativeStarted = Boolean(window.pindoWindow?.gesture("begin", "move"));
+    };
+    const longPress = setTimeout(() => begin(event), 180);
     const move = e => {
-      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 4) assistantWasDragged = true;
-      if (!assistantWasDragged) return;
-      if (!pickupStarted) { pickupStarted = true; playDodoAnimation("picked_up", { priority: 5, interruptible: false }); }
+      const distance = Math.hypot(e.screenX - startX, e.screenY - startY);
+      if (!started && distance > 6) begin(e);
+      if (!started) return;
+      e.preventDefault();
+      if (controlWindow) { if (nativeStarted) window.pindoWindow.gesture("update", "move"); return; }
       state.assistant.tucked = false;
-      state.assistant.x = clamp(startLeft + e.clientX - startX, 0, innerWidth - 52);
-      state.assistant.y = clamp(startTop + e.clientY - startY, 0, innerHeight - 118);
+      state.assistant.x = clamp(startLeft + e.screenX - startX, 0, innerWidth - 52);
+      state.assistant.y = clamp(startTop + e.screenY - startY, 0, innerHeight - 118);
       positionAssistant();
       const nearLeft = state.assistant.x < 34, nearDock = state.assistant.x > innerWidth - 135;
       dockTarget.querySelector("span").textContent = "松开隐藏 Dodo";
       dockTarget.classList.toggle("active", nearDock); dockTarget.classList.toggle("dodo-target", nearDock);
       leftDockTarget.classList.toggle("active", nearLeft); leftDockTarget.classList.toggle("dodo-target", nearLeft);
     };
-    const up = () => {
-      assistant.classList.remove("is-moving");
-      const nearLeft = state.assistant.x < 34, nearRight = state.assistant.x > innerWidth - 135;
-      dockTarget.classList.remove("active", "dodo-target"); leftDockTarget.classList.remove("active", "dodo-target"); dockTarget.querySelector("span").textContent = "松开后收纳";
-      assistantMascot.removeEventListener("pointermove", move); assistantMascot.removeEventListener("pointerup", up);
-      if (assistantWasDragged && (nearLeft || nearRight)) tuckDodo(nearLeft ? "left" : "right");
-      else {
-        positionAssistant(); save();
-        if (assistantWasDragged) playDodoAnimation("landing", { priority: 5, interruptible: false, onComplete: playDodoIdle });
-        else playDodoIdle();
+    const end = e => {
+      clearTimeout(longPress); dodoController.pointer(false);
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); window.removeEventListener("pointercancel", end);
+      if (!started) { playDodoIdle(); return; }
+      assistant.classList.remove("is-moving"); if (nativeStarted) window.pindoWindow.gesture(e.type === "pointerup" ? "end" : "cancel", "move");
+      let nearLeft = state.assistant.x < 34, nearRight = state.assistant.x > innerWidth - 135;
+      if (controlWindow) {
+        const native = window.pindoWindow?.dodoMetrics?.();
+        if (native) { nearLeft = native.bounds.x <= native.workArea.x + 34; nearRight = native.bounds.x + native.bounds.width >= native.workArea.x + native.workArea.width - 34; }
       }
+      pendingDodoDock = nearLeft ? "left" : nearRight ? "right" : null;
+      dockTarget.classList.remove("active", "dodo-target"); leftDockTarget.classList.remove("active", "dodo-target"); dockTarget.querySelector("span").textContent = "松开后收纳";
+      if (assistantMascot.hasPointerCapture?.(pointerId)) assistantMascot.releasePointerCapture(pointerId);
+      dodoController.releaseDrag();
     };
-    assistantMascot.addEventListener("pointermove", move); assistantMascot.addEventListener("pointerup", up);
+    window.addEventListener("pointermove", move, { passive: false }); window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
   });
   assistantMascot.addEventListener("click", event => {
     event.stopPropagation(); if (assistantWasDragged) { assistantWasDragged = false; return; }
@@ -2216,8 +2274,9 @@
       state.notes.filter(note => !attachmentByChild(note.id)).forEach(note => {
         syncAttachedStack(note.id);
         const stack = attachedTreeIds(note.id).map(noteById).filter(Boolean), stackHeight = stack.reduce((sum, item) => sum + item.h, 0);
-        note.x = clamp(note.x, 0, Math.max(0, desktop.clientWidth - note.w));
-        note.y = clamp(note.y, 34, Math.max(34, desktop.clientHeight - stackHeight));
+        const minX = canvasWindow ? canvasOriginX : 0, minY = canvasWindow ? canvasOriginY : 0;
+        note.x = clamp(note.x, minX, Math.max(minX, minX + desktop.clientWidth - note.w));
+        note.y = clamp(note.y, minY + 34, Math.max(minY + 34, minY + desktop.clientHeight - stackHeight));
         syncAttachedStack(note.id);
       });
       positionAssistant(); render();
@@ -2226,8 +2285,7 @@
 
   document.addEventListener("visibilitychange", () => {
     if (noteWindowId) return;
-    if (document.hidden) { cancelAnimationFrame(dodoPlayback.raf); clearTimeout(dodoIdleTimer); }
-    else { dodoPlayback.token++; Object.assign(dodoPlayback, { name: "", priority: -1, interruptible: true, raf: 0 }); playDodoIdle(); }
+    if (document.hidden) dodoController?.pause(); else dodoController?.resume();
   });
 
   if (controlWindow) window.pindoNative?.on("dodo-docked", side => {
@@ -2245,8 +2303,8 @@
       const id = CSS.escape(String(detail?.id || ""));
       const selector = detail?.type === "timeline" ? `[data-event-id="${id}"]` : detail?.type === "todo" ? `[data-todo="${id}"]` : "";
       const row = selector && noteLayer.querySelector(selector); if (!row) return;
-      row.scrollIntoView({block:"center",behavior:"smooth"});row.classList.remove("pindo-attention");void row.offsetWidth;row.classList.add("pindo-attention");
-      setTimeout(()=>row.classList.remove("pindo-attention"),1500);
+      row.scrollIntoView({block:"center",behavior:"smooth"});row.classList.remove("pindo-locate-feedback");void row.offsetWidth;row.classList.add("pindo-locate-feedback");
+      setTimeout(()=>row.classList.remove("pindo-locate-feedback"),MOTION.slow*2+80);
     });
   }
   if (!noteWindowId) {
@@ -2256,6 +2314,12 @@
       try {
         const incoming = JSON.parse(serialized);
         if (!incoming?.notes) return;
+        const previousModes = new Map((state.notes || []).map(note => [note.id, note.mode]));
+        const createdOrRestored = incoming.notes.find(note => note.mode !== "bookmark" && (!previousModes.has(note.id) || previousModes.get(note.id) === "bookmark"));
+        if (createdOrRestored) {
+          if (previousModes.get(createdOrRestored.id) === "bookmark") noteTransitionIntents.set(createdOrRestored.id, (noteTransitionIntents.get(createdOrRestored.id) || 0) + 1);
+          pendingNoteEntrance = { id: createdOrRestored.id, x: canvasLocalX(createdOrRestored.x) + createdOrRestored.w / 2, y: canvasLocalY(createdOrRestored.y) + createdOrRestored.h / 2 };
+        }
         lastDesktopState = serialized;
         state = incoming;
         stateRevision = revision;
@@ -2293,6 +2357,12 @@
 
   if (canvasWindow && window.pindoDesktop?.setCanvasRegions) {
     let scheduled = 0, previous = "";
+    let canvasGestureActive = false;
+    const resetCanvasInteraction = reason => {
+      if (canvasGestureActive) window.pindoDesktop.setCanvasGesture(false);
+      canvasGestureActive = false;
+      void window.pindoDesktop.endCanvasEdit?.(reason);
+    };
     const publish = () => {
       scheduled = 0;
       const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
@@ -2306,13 +2376,25 @@
     new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
     window.addEventListener('resize', schedule);
     window.pindoDesktop.onCanvasRefresh(schedule);
+    window.pindoDesktop.onCanvasGeometry?.(geometry => {
+      if (Number.isFinite(geometry?.origin?.x)) canvasOriginX = geometry.origin.x;
+      if (Number.isFinite(geometry?.origin?.y)) canvasOriginY = geometry.origin.y;
+      render(); schedule();
+    });
     document.addEventListener('pointerdown', event => {
       const editable = event.target.closest('[contenteditable="true"], input:not([readonly]), textarea');
       if (editable) void window.pindoDesktop.focusCanvasEditor().then(ok => { if (ok && editable.isConnected) editable.focus(); });
-      if (event.target.closest('.note-header, [data-resize-edge]')) window.pindoDesktop.setCanvasGesture(true);
+      if (event.target.closest('.note-header, [data-resize-edge]')) { canvasGestureActive = true; window.pindoDesktop.setCanvasGesture(true); }
     }, true);
-    document.addEventListener('pointerup', () => window.pindoDesktop.setCanvasGesture(false), true);
-    document.addEventListener('pointercancel', () => window.pindoDesktop.setCanvasGesture(false), true);
+    document.addEventListener('focusout', () => queueMicrotask(() => {
+      if (!document.activeElement?.matches?.('[contenteditable="true"], input:not([readonly]), textarea')) void window.pindoDesktop.endCanvasEdit?.('focusout');
+    }), true);
+    document.addEventListener('pointerup', () => { canvasGestureActive = false; window.pindoDesktop.setCanvasGesture(false); }, true);
+    document.addEventListener('pointercancel', () => resetCanvasInteraction('pointercancel'), true);
+    document.addEventListener('lostpointercapture', () => resetCanvasInteraction('lostpointercapture'), true);
+    window.addEventListener('blur', () => resetCanvasInteraction('renderer-blur'));
+    window.addEventListener('pagehide', () => resetCanvasInteraction('pagehide'));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) resetCanvasInteraction('visibilitychange'); });
     schedule();
   }
 

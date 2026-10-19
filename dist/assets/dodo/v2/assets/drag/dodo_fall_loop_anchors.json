@@ -1,0 +1,281 @@
+{
+  "asset": "dodo_fall_loop.webp",
+  "kind": "loop",
+  "from_state": "fall_loop",
+  "to_state": "fall_loop",
+  "canvas": {
+    "width": 1024,
+    "height": 1024
+  },
+  "frame_count": 6,
+  "fps": 18,
+  "duration_ms": 333,
+  "loop": true,
+  "alpha": true,
+  "alpha_hit_test_threshold": 8,
+  "notes": [
+    "Application controls actual fall distance and velocity; this loop adds only subtle pose motion.",
+    "For a seamless handoff to landing, request exit on frame 0.",
+    "No opacity crossfade or ghosted double contour."
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "duration_ms": 56,
+      "eye_left": [
+        316,
+        452
+      ],
+      "eye_right": [
+        489,
+        432
+      ],
+      "mouth": [
+        394,
+        493
+      ],
+      "grab_anchor": [
+        485,
+        205
+      ],
+      "body_center": [
+        512,
+        650
+      ],
+      "ground_anchor": [
+        512,
+        928
+      ],
+      "bounds": {
+        "x": 193,
+        "y": 108,
+        "width": 672,
+        "height": 820
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          402,
+          442
+        ],
+        "scale": 0.8063,
+        "rotation_deg": -6.595
+      }
+    },
+    {
+      "frame": 1,
+      "duration_ms": 55,
+      "eye_left": [
+        318,
+        450
+      ],
+      "eye_right": [
+        492,
+        431
+      ],
+      "mouth": [
+        396,
+        491
+      ],
+      "grab_anchor": [
+        489,
+        203
+      ],
+      "body_center": [
+        513,
+        650
+      ],
+      "ground_anchor": [
+        511,
+        929
+      ],
+      "bounds": {
+        "x": 195,
+        "y": 106,
+        "width": 671,
+        "height": 824
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          405,
+          440
+        ],
+        "scale": 0.8103,
+        "rotation_deg": -6.232
+      }
+    },
+    {
+      "frame": 2,
+      "duration_ms": 56,
+      "eye_left": [
+        318,
+        450
+      ],
+      "eye_right": [
+        492,
+        432
+      ],
+      "mouth": [
+        396,
+        492
+      ],
+      "grab_anchor": [
+        489,
+        203
+      ],
+      "body_center": [
+        513,
+        651
+      ],
+      "ground_anchor": [
+        511,
+        931
+      ],
+      "bounds": {
+        "x": 195,
+        "y": 106,
+        "width": 672,
+        "height": 826
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          405,
+          441
+        ],
+        "scale": 0.8099,
+        "rotation_deg": -5.906
+      }
+    },
+    {
+      "frame": 3,
+      "duration_ms": 55,
+      "eye_left": [
+        316,
+        453
+      ],
+      "eye_right": [
+        489,
+        433
+      ],
+      "mouth": [
+        394,
+        494
+      ],
+      "grab_anchor": [
+        485,
+        206
+      ],
+      "body_center": [
+        512,
+        651
+      ],
+      "ground_anchor": [
+        512,
+        929
+      ],
+      "bounds": {
+        "x": 193,
+        "y": 109,
+        "width": 672,
+        "height": 820
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          402,
+          443
+        ],
+        "scale": 0.8063,
+        "rotation_deg": -6.595
+      }
+    },
+    {
+      "frame": 4,
+      "duration_ms": 56,
+      "eye_left": [
+        314,
+        455
+      ],
+      "eye_right": [
+        486,
+        434
+      ],
+      "mouth": [
+        392,
+        496
+      ],
+      "grab_anchor": [
+        481,
+        208
+      ],
+      "body_center": [
+        511,
+        651
+      ],
+      "ground_anchor": [
+        513,
+        928
+      ],
+      "bounds": {
+        "x": 191,
+        "y": 110,
+        "width": 672,
+        "height": 818
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          400,
+          444
+        ],
+        "scale": 0.8022,
+        "rotation_deg": -6.961
+      }
+    },
+    {
+      "frame": 5,
+      "duration_ms": 55,
+      "eye_left": [
+        314,
+        454
+      ],
+      "eye_right": [
+        486,
+        433
+      ],
+      "mouth": [
+        392,
+        494
+      ],
+      "grab_anchor": [
+        481,
+        206
+      ],
+      "body_center": [
+        511,
+        650
+      ],
+      "ground_anchor": [
+        513,
+        927
+      ],
+      "bounds": {
+        "x": 191,
+        "y": 108,
+        "width": 672,
+        "height": 819
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          400,
+          444
+        ],
+        "scale": 0.8022,
+        "rotation_deg": -6.961
+      }
+    }
+  ]
+}

@@ -5,11 +5,18 @@ contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   setCanvasRegions: regions => ipcRenderer.send('pindo:canvas-regions', regions),
   setCanvasGesture: active => ipcRenderer.send('pindo:canvas-gesture', Boolean(active)),
   focusCanvasEditor: () => ipcRenderer.invoke('pindo:canvas-focus-edit'),
+  endCanvasEdit: reason => ipcRenderer.invoke('pindo:canvas-end-edit', String(reason || 'renderer')),
   onCanvasRefresh: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = () => callback();
     ipcRenderer.on('pindo:canvas-refresh-regions', listener);
     return () => ipcRenderer.removeListener('pindo:canvas-refresh-regions', listener);
+  },
+  onCanvasGeometry: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('pindo:canvas-geometry', listener);
+    return () => ipcRenderer.removeListener('pindo:canvas-geometry', listener);
   },
   readState: () => ipcRenderer.sendSync('pindo:read-state'),
   readRevision: () => ipcRenderer.sendSync('pindo:read-revision'),
@@ -45,7 +52,10 @@ contextBridge.exposeInMainWorld("pindoWindow", Object.freeze({
   gesture: (action, kind) => {
     if (action === 'update') { ipcRenderer.send("pindo:window-gesture", action, kind); return null; }
     return ipcRenderer.sendSync("pindo:window-gesture", action, kind);
-  }
+  },
+  // Read-only native bounds used to decide whether a completed pointer drag
+  // should dock Dodo. Animation playback cannot move the host window.
+  dodoMetrics: () => ipcRenderer.sendSync('pindo:dodo-physics', 'metrics')
 }));
 
 contextBridge.exposeInMainWorld('pindoNative', Object.freeze({
@@ -54,7 +64,7 @@ contextBridge.exposeInMainWorld('pindoNative', Object.freeze({
   describeFile: file => ipcRenderer.invoke('pindo:native-command', 'describe-file', webUtils.getPathForFile(file)),
   captureSelection: value => ipcRenderer.send('pindo:capture-selection', value),
   on: (name, callback) => {
-    if (!['note-state','snap','dock-state','dodo-docked','capture-image','window-blur','dock-settings','pointer-outside','highlight-item'].includes(name) || typeof callback !== 'function') return () => {};
+    if (!['note-state','snap','dock-state','dodo-docked','capture-image','window-blur','dock-settings','pointer-outside','highlight-item','cf07-preview-state'].includes(name) || typeof callback !== 'function') return () => {};
     const listener = (_event,value) => callback(value); ipcRenderer.on('pindo:'+name,listener);
     return () => ipcRenderer.removeListener('pindo:'+name,listener);
   }
