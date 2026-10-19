@@ -114,6 +114,7 @@ test('animation controller never moves the host window during drag or fall', () 
   assert.doesNotMatch(source, /physicsRaf|physics\.move|startFall\(|landingMetrics/);
   assert.match(source, /startVisualFall\(\)/);
   assert.doesNotMatch(app, /dodoPhysicsAdapter/);
+  assert.match(app, /state: \(\) => dodoController\.state/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'electron', 'dodo-physics.cjs'), 'utf8'), /setPosition\(/);
 });
 

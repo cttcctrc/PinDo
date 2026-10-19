@@ -39,9 +39,9 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
         const release = await mainWindow.webContents.executeJavaScript(`(async () => {
           await window.__pindoDodoV2Test.enter(${JSON.stringify(state)});
           const started = window.__pindoDodoV2Test.drag({});
-          const dragState = window.__pindoDodoV2Test.diagnostics().state;
+          const dragState = window.__pindoDodoV2Test.state();
           await window.__pindoDodoV2Test.release();
-          return { started, dragState, releaseState: window.__pindoDodoV2Test.diagnostics().state };
+          return { started, dragState, releaseState: window.__pindoDodoV2Test.state() };
         })()`);
         check(`Dodo V2 releases immediately from ${state}`, release.started && release.dragState === expectedTransition && release.releaseState === 'drag_release_to_fall', JSON.stringify(release));
       }

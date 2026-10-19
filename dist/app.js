@@ -294,6 +294,7 @@
         enter: stateName => dodoController.enter(stateName, { reason: "smoke.direct" }),
         drag: event => dodoController.startDrag(event),
         release: () => dodoController.releaseDrag(),
+        state: () => dodoController.state,
         diagnostics: () => window.__pindoDodoV2Diagnostics
       });
     }
