@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
+const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, CanvasRenderer, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
 
 const root = path.join(__dirname, '..');
 const runtimeRoot = path.join(root, 'dist', 'assets', 'dodo', 'v2');
@@ -115,6 +115,14 @@ test('animation controller never moves the host window during drag or fall', () 
   assert.match(source, /startVisualFall\(\)/);
   assert.doesNotMatch(app, /dodoPhysicsAdapter/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'electron', 'dodo-physics.cjs'), 'utf8'), /setPosition\(/);
+});
+
+test('empty visual cleanup does not redraw a frame that a rapid transition just closed', () => {
+  const context = { clearRect() {}, save() {}, translate() {}, drawImage() { throw new Error('closed frame'); }, restore() {} };
+  const renderer = new CanvasRenderer({ getContext: () => context }, { dataset: {}, classList: { add() {}, remove() {} } });
+  renderer.main = { frame: {}, anchor: {}, state: 'stand_to_drag' };
+  assert.doesNotThrow(() => renderer.clearOverlays());
+  assert.doesNotThrow(() => renderer.clearGrabTarget());
 });
 
 test('renderer contract uses WebCodecs duration and bounded on-demand caches', () => {

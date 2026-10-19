@@ -92,9 +92,13 @@
     }
     setMain(frame, anchor, state) { this.main = { frame, anchor, state }; this.hostElement.dataset.animation = state; this.draw(); }
     setOverlay(name, value) { if (value) this.overlays.set(name, value); else this.overlays.delete(name); this.draw(); }
-    clearOverlays() { this.overlays.clear(); this.draw(); }
+    clearOverlays() { if (!this.overlays.size) return; this.overlays.clear(); this.draw(); }
     setGrabTarget(point) { this.grabTarget = point; this.draw(); }
-    clearGrabTarget() { this.grabTarget = null; this.drawOffset = { x: 0, y: 0 }; this.draw(); }
+    clearGrabTarget() {
+      const changed = this.grabTarget || this.drawOffset.x || this.drawOffset.y;
+      this.grabTarget = null; this.drawOffset = { x: 0, y: 0 };
+      if (changed) this.draw();
+    }
     currentAnchor(name) { return this.main?.anchor?.[name] || null; }
     draw() {
       const ctx = this.context; ctx.clearRect(0, 0, 1024, 1024);
