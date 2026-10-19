@@ -225,7 +225,8 @@
       this.diagnostics.transitions.push({ from: previous, to: state, reason: meta.reason || "transition", at: Date.now() });
       if (this.diagnostics.transitions.length > 120) this.diagnostics.transitions.shift();
       const nextState = spec.next || spec.default_next || null;
-      await this.player.play(state, spec, { onFrame: detail => this.onFrame(detail, meta), onComplete: () => this.onComplete(state, meta), onError: (error, detail) => this.onPlaybackError(error, detail) });
+      const playbackSpec = meta.playOnce ? { ...spec, loop: false } : spec;
+      await this.player.play(state, playbackSpec, { onFrame: detail => this.onFrame(detail, meta), onComplete: () => this.onComplete(state, meta), onError: (error, detail) => this.onPlaybackError(error, detail) });
       if (nextState) this.store.load(this.spec(nextState).asset, this.spec(nextState).anchors).catch(() => {});
       if (state === "idle_stand") this.scheduleStand();
       if (state === "idle_sit") this.scheduleSitBranch();
@@ -245,12 +246,13 @@
     }
     onComplete(state, meta) {
       if (state === "disappointed") { if (!meta.melt) this.enter("idle_stand", { reason: "emotion.complete", guard: true }); return; }
+      if (state === "fall_loop" && meta.playOnce) { this.land(); return; }
       const next = this.spec(state).next;
       if (!next) return;
       if (state === "drag_release_to_fall") {
-        const falling = this.enter("fall_loop", { reason: "drag.visual_fall" });
+        const falling = this.enter("fall_loop", { reason: "drag.visual_fall", playOnce: true });
         this.timers.set("fall-load-watchdog", 5000, () => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_watchdog", guard: true }); });
-        falling.then(() => { this.timers.clear("fall-load-watchdog"); if (this.state === "fall_loop") this.startVisualFall(); })
+        falling.then(() => { this.timers.clear("fall-load-watchdog"); })
           .catch(() => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_error", guard: true }); });
         return;
       }
@@ -331,11 +333,6 @@
         }
       });
       return released;
-    }
-    startVisualFall() {
-      const frames = manifestFrames(this.player.record?.manifest);
-      const duration = Math.max(120, frames.reduce((sum, frame) => sum + Math.max(1, Number(frame.duration_ms) || 0), 0));
-      this.timers.set("visual-fall", duration, () => { if (this.state === "fall_loop") this.land(); });
     }
     land() { this.diagnostics.landings += 1; this.enter("fall_to_stand", { reason: "drag.visual_land", guard: true, afterComplete: () => this.options.onLanded?.() }); }
     applyGuard() { this.standGuardUntil = this.now() + this.config.config_defaults_ms.landing_stand_guard; }

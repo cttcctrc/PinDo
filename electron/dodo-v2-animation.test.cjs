@@ -112,7 +112,8 @@ test('animation controller never moves the host window during drag or fall', () 
   const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
   assert.doesNotMatch(source, /physicsRaf|physics\.move|startFall\(|landingMetrics/);
-  assert.match(source, /startVisualFall\(\)/);
+  assert.match(source, /playOnce: true/);
+  assert.doesNotMatch(source, /startVisualFall\(\)/);
   assert.doesNotMatch(app, /dodoPhysicsAdapter/);
   assert.match(app, /state: \(\) => dodoController\.state/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'electron', 'dodo-physics.cjs'), 'utf8'), /setPosition\(/);
@@ -124,6 +125,12 @@ test('empty visual cleanup does not redraw a frame that a rapid transition just 
   renderer.main = { frame: {}, anchor: {}, state: 'stand_to_drag' };
   assert.doesNotThrow(() => renderer.clearOverlays());
   assert.doesNotThrow(() => renderer.clearGrabTarget());
+});
+
+test('one visual fall cycle lands from the player completion callback', () => {
+  let landed = 0;
+  DodoV2Controller.prototype.onComplete.call({ land() { landed += 1; } }, 'fall_loop', { playOnce: true });
+  assert.equal(landed, 1);
 });
 
 test('renderer contract uses WebCodecs duration and bounded on-demand caches', () => {

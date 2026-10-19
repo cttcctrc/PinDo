@@ -49,7 +49,13 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
       const beforeDropBounds = mainWindow.getBounds();
       const beforeDrop = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
       await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.drag({}); window.__pindoDodoV2Test.release()");
-      const landed = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.state==='idle_stand' && d.landings>${Number(beforeDrop.landings)} ? d : null; })()`), 30000);
+      let landed;
+      try {
+        landed = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.state==='idle_stand' && d.landings>${Number(beforeDrop.landings)} ? d : null; })()`), 30000);
+      } catch (error) {
+        const stalled = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
+        throw new Error(`Dodo visual drop timed out: ${JSON.stringify(stalled)}`);
+      }
       const afterDropBounds = mainWindow.getBounds();
       check('Dodo V2 visual drop completes in standing state', landed.state === 'idle_stand', JSON.stringify(landed));
       check('Dodo V2 visual drop does not move host window', beforeDropBounds.x === afterDropBounds.x && beforeDropBounds.y === afterDropBounds.y, `${JSON.stringify(beforeDropBounds)} -> ${JSON.stringify(afterDropBounds)}`);
