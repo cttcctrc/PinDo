@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { sitBranch, DRAG_TRANSITIONS, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
+const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
 
 const root = path.join(__dirname, '..');
 const runtimeRoot = path.join(root, 'dist', 'assets', 'dodo', 'v2');
@@ -88,6 +88,33 @@ test('all six stable states enter the unified drag and landing chain for 100 cyc
     const sequence = [DRAG_TRANSITIONS[from], 'drag_hold', 'drag_release_to_fall', 'fall_loop', 'fall_to_stand', 'idle_stand'];
     assert.ok(sequence[0]); assert.equal(sequence.at(-1), 'idle_stand');
   }
+});
+
+test('release interrupts every drag transition immediately instead of waiting for drag_hold', async () => {
+  for (const state of DRAG_ACTIVE_STATES) {
+    let entered = null;
+    const fake = {
+      state,
+      pointerDown: true,
+      renderer: { clearGrabTarget() {} },
+      timers: { set() {} },
+      enter(next) { entered = next; this.state = next; return Promise.resolve(); }
+    };
+    const result = DodoV2Controller.prototype.releaseDrag.call(fake);
+    assert.ok(result, state);
+    await result;
+    assert.equal(entered, 'drag_release_to_fall', state);
+    assert.equal(fake.pointerDown, false, state);
+  }
+});
+
+test('animation controller never moves the host window during drag or fall', () => {
+  const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
+  assert.doesNotMatch(source, /physicsRaf|physics\.move|startFall\(|landingMetrics/);
+  assert.match(source, /startVisualFall\(\)/);
+  assert.doesNotMatch(app, /dodoPhysicsAdapter/);
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'electron', 'dodo-physics.cjs'), 'utf8'), /setPosition\(/);
 });
 
 test('renderer contract uses WebCodecs duration and bounded on-demand caches', () => {

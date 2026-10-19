@@ -272,24 +272,6 @@
   }
   applyInterfaceSettings();
 
-  function dodoPhysicsAdapter() {
-    return {
-      metrics() {
-        const rect = dodoCanvas.getBoundingClientRect(), scale = rect.width / 1024;
-        if (controlWindow) {
-          const native = window.pindoWindow?.dodoPhysics("metrics");
-          if (!native) return null;
-          return { hostY: native.bounds.y, groundY: native.workArea.y + native.workArea.height, canvasTop: rect.top, scale };
-        }
-        return { hostY: state.assistant.y || 0, groundY: innerHeight, canvasTop: rect.top - (state.assistant.y || 0), scale };
-      },
-      move(y) {
-        if (controlWindow) window.pindoWindow?.dodoPhysics("move", { y: Math.round(y) });
-        else { state.assistant.y = y; positionAssistant(); }
-      }
-    };
-  }
-
   async function initializeDodoV2() {
     if (noteWindowId || canvasWindow || dodoController) return;
     try {
@@ -302,7 +284,6 @@
       configUrl: "./assets/dodo/v2/dodo_animation_state_machine.json",
       isIdleBlocked: () => document.hidden || state.assistant.tucked || assistant.classList.contains("is-moving") || !assistantPanel.hidden || !dodoNudge.hidden,
       hasUpcomingReminder: () => !dodoNudge.hidden,
-      physics: dodoPhysicsAdapter(),
       onLanded: () => {
         save();
         if (pendingDodoDock) { const side = pendingDodoDock; pendingDodoDock = null; tuckDodo(side); }
@@ -2055,7 +2036,7 @@
       assistant.classList.remove("is-moving"); if (nativeStarted) window.pindoWindow.gesture(e.type === "pointerup" ? "end" : "cancel", "move");
       let nearLeft = state.assistant.x < 34, nearRight = state.assistant.x > innerWidth - 135;
       if (controlWindow) {
-        const native = window.pindoWindow?.dodoPhysics("metrics");
+        const native = window.pindoWindow?.dodoMetrics?.();
         if (native) { nearLeft = native.bounds.x <= native.workArea.x + 34; nearRight = native.bounds.x + native.bounds.width >= native.workArea.x + native.workArea.width - 34; }
       }
       pendingDodoDock = nearLeft ? "left" : nearRight ? "right" : null;

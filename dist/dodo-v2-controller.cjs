@@ -9,6 +9,7 @@
     disappointed: "disappointed_to_drag",
     melt_loop: "melt_to_drag"
   });
+  const DRAG_ACTIVE_STATES = new Set([...Object.values(DRAG_TRANSITIONS), "drag_hold"]);
   const OVERLAY_STATES = new Set(["idle_stand", "idle_sit"]);
   // P0 recovery policy: facial overlays remain packaged for a later, isolated
   // optimization pass, but are deliberately disconnected from this runtime.
@@ -193,10 +194,9 @@
     constructor(options) {
       this.options = options; this.random = options.random || Math.random; this.now = options.now || (() => Date.now());
       this.timers = new PausableTimers(); this.state = "idle_stand"; this.config = null; this.pointerDown = false;
-      this.standGuardUntil = 0; this.pendingDrag = false; this.pendingRelease = false; this.sitDecisionTaken = false;
+      this.standGuardUntil = 0; this.sitDecisionTaken = false;
       this.disappointedCooldownUntil = 0; this.meltCooldownUntil = 0;
-      this.overlayKind = ""; this.physicsRaf = 0; this.fallVelocity = 0; this.lastPhysicsAt = 0;
-      this.landingMetrics = null;
+      this.overlayKind = "";
       this.renderer = new CanvasRenderer(options.canvas, options.hostElement);
       this.store = new AssetStore(options.assetBase, 2, options.fetcher || fetch);
       this.player = new MainPlayer(this.store, this.renderer);
@@ -216,7 +216,7 @@
     spec(state) { return this.config.states[state]; }
     async enter(state, meta = {}) {
       const spec = this.spec(state); if (!spec) throw new Error(`Unknown Dodo state: ${state}`);
-      this.timers.clearAll(); this.stopOverlay(); cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0;
+      this.timers.clearAll(); this.stopOverlay();
       const previous = this.state; this.state = state; this.options.hostElement.dataset.dodoV2State = state;
       this.diagnostics.transitions.push({ from: previous, to: state, reason: meta.reason || "transition", at: Date.now() });
       if (this.diagnostics.transitions.length > 120) this.diagnostics.transitions.shift();
@@ -232,13 +232,6 @@
     onFrame(detail, meta) {
       this.diagnostics.renderedFrames += 1;
       this.diagnostics.playbackError = null;
-      if (this.state === "fall_to_stand" && this.landingMetrics && detail.anchor?.ground_anchor) {
-        const metrics = this.landingMetrics;
-        const currentGround = metrics.hostY + metrics.canvasTop + detail.anchor.ground_anchor[1] * metrics.scale;
-        metrics.hostY += metrics.groundY - currentGround; this.options.physics?.move?.(metrics.hostY);
-      }
-      if (this.pendingDrag && this.state === "disappointed" && detail.frame >= (this.spec("disappointed").melt_branch_frame || 19)) { this.pendingDrag = false; this.beginDragTransition(); }
-      if (this.pendingDrag && this.state === "melt_loop" && detail.frame === (this.spec("melt_loop").safe_exit_frame || 0)) { this.pendingDrag = false; this.beginDragTransition(); }
       if (this.state === "disappointed" && meta.melt && detail.frame >= (this.spec("disappointed").melt_branch_frame || 19)) this.enter("disappointed_to_melt", { reason: "emotion.melt_branch" });
       this.options.onFrame?.(detail); this.publishDiagnostics();
     }
@@ -250,10 +243,15 @@
       if (state === "disappointed") { if (!meta.melt) this.enter("idle_stand", { reason: "emotion.complete", guard: true }); return; }
       const next = this.spec(state).next;
       if (!next) return;
-      if (state === "drag_release_to_fall") { this.enter("fall_loop", { reason: "physics.airborne" }).then(() => this.startFall()); return; }
+      if (state === "drag_release_to_fall") {
+        const falling = this.enter("fall_loop", { reason: "drag.visual_fall" });
+        this.timers.set("fall-load-watchdog", 5000, () => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_watchdog", guard: true }); });
+        falling.then(() => { this.timers.clear("fall-load-watchdog"); if (this.state === "fall_loop") this.startVisualFall(); })
+          .catch(() => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_error", guard: true }); });
+        return;
+      }
       const guard = Boolean(this.spec(state).starts_stand_guard);
       this.enter(next, { reason: `${state}.complete`, guard }).then(() => meta.afterComplete?.());
-      if (next === "drag_hold" && this.pendingRelease) { this.pendingRelease = false; this.releaseDrag(); }
     }
     scheduleStand() {
       if (this.options.isIdleBlocked?.()) { this.timers.set("stand", 1000, () => this.scheduleStand()); return; }
@@ -308,43 +306,38 @@
       return this.enter("disappointed", { reason: "emotion.disappointed", melt });
     }
     recover() { if (this.state === "melt_loop") return this.enter("melt_to_stand", { reason: "emotion.recover", guard: true }); }
-    setGrabPointFromPointer(event) {
-      const rect = this.options.canvas.getBoundingClientRect(); const scale = rect.width / 1024;
-      const screenLeft = (root.screenX || 0) + rect.left, screenTop = (root.screenY || 0) + rect.top;
-      this.renderer.setGrabTarget({ x: (event.screenX - screenLeft) / scale, y: (event.screenY - screenTop) / scale });
-    }
-    startDrag(event) {
+    startDrag() {
       const transition = DRAG_TRANSITIONS[this.state]; if (!transition) return false;
-      this.pointerDown = true; this.stopOverlay(); this.setGrabPointFromPointer(event); this.diagnostics.drags += 1;
-      if (this.state === "disappointed" && (this.player.frameIndex || 0) < 19) { this.pendingDrag = true; return true; }
-      if (this.state === "melt_loop" && this.player.frameIndex !== 0) { this.pendingDrag = true; return true; }
-      this.beginDragTransition(); return true;
+      this.pointerDown = true; this.stopOverlay(); this.diagnostics.drags += 1;
+      this.enter(transition, { reason: "drag.start" }).catch(() => {
+        if (DRAG_ACTIVE_STATES.has(this.state)) this.enter("drag_hold", { reason: "drag.enter_error" });
+      });
+      this.timers.set("drag-enter-watchdog", 5000, () => {
+        if (DRAG_ACTIVE_STATES.has(this.state)) this.enter("drag_hold", { reason: "drag.enter_watchdog" });
+      });
+      return true;
     }
-    beginDragTransition() { const transition = DRAG_TRANSITIONS[this.state]; if (transition) this.enter(transition, { reason: "drag.start" }); }
     releaseDrag() {
       this.pointerDown = false; this.renderer.clearGrabTarget();
-      if (this.state !== "drag_hold") { this.pendingRelease = true; return; }
-      this.enter("drag_release_to_fall", { reason: "drag.release" });
+      if (!DRAG_ACTIVE_STATES.has(this.state)) return false;
+      const released = this.enter("drag_release_to_fall", { reason: "drag.release" });
+      this.timers.set("drag-release-watchdog", 6000, () => {
+        if (DRAG_ACTIVE_STATES.has(this.state) || ["drag_release_to_fall", "fall_loop", "fall_to_stand"].includes(this.state)) {
+          this.enter("idle_stand", { reason: "drag.release_watchdog", guard: true });
+        }
+      });
+      return released;
     }
-    startFall() {
-      const metrics = this.options.physics?.metrics?.(); if (!metrics) { this.land(); return; }
-      let hostY = metrics.hostY; const groundY = metrics.groundY; this.fallVelocity = 0; this.lastPhysicsAt = performance.now();
-      const tick = now => {
-        if (this.state !== "fall_loop") return;
-        const dt = Math.min(.05, Math.max(0, (now - this.lastPhysicsAt) / 1000)); this.lastPhysicsAt = now;
-        this.fallVelocity = Math.min(1800, this.fallVelocity + 2100 * dt); const dy = this.fallVelocity * dt; hostY += dy;
-        const anchor = this.renderer.currentAnchor("ground_anchor") || [512, 947];
-        const currentGround = hostY + metrics.canvasTop + (anchor[1] + this.renderer.drawOffset.y) * metrics.scale;
-        if (currentGround >= groundY) { const correction = groundY - currentGround; hostY += correction; this.options.physics.move?.(hostY); this.landingMetrics = { ...metrics, hostY, groundY }; this.land(); return; }
-        this.options.physics.move?.(hostY); this.physicsRaf = requestAnimationFrame(tick);
-      };
-      this.physicsRaf = requestAnimationFrame(tick);
+    startVisualFall() {
+      const frames = manifestFrames(this.player.record?.manifest);
+      const duration = Math.max(120, frames.reduce((sum, frame) => sum + Math.max(1, Number(frame.duration_ms) || 0), 0));
+      this.timers.set("visual-fall", duration, () => { if (this.state === "fall_loop") this.land(); });
     }
-    land() { cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0; this.diagnostics.landings += 1; this.enter("fall_to_stand", { reason: "physics.ground_contact", guard: true, afterComplete: () => { this.landingMetrics = null; this.options.onLanded?.(); } }); }
+    land() { this.diagnostics.landings += 1; this.enter("fall_to_stand", { reason: "drag.visual_land", guard: true, afterComplete: () => this.options.onLanded?.() }); }
     applyGuard() { this.standGuardUntil = this.now() + this.config.config_defaults_ms.landing_stand_guard; }
-    pause() { this.timers.pause(); this.player.pause(); cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0; }
-    resume() { this.timers.resume(); this.player.resume(); if (this.state === "fall_loop") this.startFall(); }
-    destroy() { this.timers.clearAll(); this.player.stop(); this.store.close(); cancelAnimationFrame(this.physicsRaf); }
+    pause() { this.timers.pause(); this.player.pause(); }
+    resume() { this.timers.resume(); this.player.resume(); }
+    destroy() { this.timers.clearAll(); this.player.stop(); this.store.close(); }
   }
 
   const originalEnter = DodoV2Controller.prototype.enter;
@@ -353,7 +346,7 @@
     return originalEnter.call(this, state, meta);
   };
 
-  const api = { DodoV2Controller, PausableTimers, AssetStore, CanvasRenderer, MainPlayer, anchorFrameAt, manifestFrames, between, sitBranch, DRAG_TRANSITIONS, OVERLAY_STATES, FACIAL_OVERLAYS_ENABLED };
+  const api = { DodoV2Controller, PausableTimers, AssetStore, CanvasRenderer, MainPlayer, anchorFrameAt, manifestFrames, between, sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, OVERLAY_STATES, FACIAL_OVERLAYS_ENABLED };
   root.PinDoDodoV2 = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

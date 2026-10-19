@@ -34,6 +34,25 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
         const advanced = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.renderedFrames>${Number(decoded.renderedFrames)} ? d : null; })()`), 5000);
         check(`Dodo V2 advances ${state}`, !advanced.playbackError, JSON.stringify(advanced));
       }
+      const dragTransitions = { idle_stand: 'stand_to_drag', idle_sit: 'sit_to_drag', doze_loop: 'doze_to_drag', sleep_loop: 'sleep_to_drag', disappointed: 'disappointed_to_drag', melt_loop: 'melt_to_drag' };
+      for (const [state, expectedTransition] of Object.entries(dragTransitions)) {
+        const release = await mainWindow.webContents.executeJavaScript(`(async () => {
+          await window.__pindoDodoV2Test.enter(${JSON.stringify(state)});
+          const started = window.__pindoDodoV2Test.drag({});
+          const dragState = window.__pindoDodoV2Test.diagnostics().state;
+          await window.__pindoDodoV2Test.release();
+          return { started, dragState, releaseState: window.__pindoDodoV2Test.diagnostics().state };
+        })()`);
+        check(`Dodo V2 releases immediately from ${state}`, release.started && release.dragState === expectedTransition && release.releaseState === 'drag_release_to_fall', JSON.stringify(release));
+      }
+      await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.enter('idle_stand')");
+      const beforeDropBounds = mainWindow.getBounds();
+      const beforeDrop = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
+      await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.drag({}); window.__pindoDodoV2Test.release()");
+      const landed = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.state==='idle_stand' && d.landings>${Number(beforeDrop.landings)} ? d : null; })()`), 30000);
+      const afterDropBounds = mainWindow.getBounds();
+      check('Dodo V2 visual drop completes in standing state', landed.state === 'idle_stand', JSON.stringify(landed));
+      check('Dodo V2 visual drop does not move host window', beforeDropBounds.x === afterDropBounds.x && beforeDropBounds.y === afterDropBounds.y, `${JSON.stringify(beforeDropBounds)} -> ${JSON.stringify(afterDropBounds)}`);
       const overlay = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
       check('Dodo V2 facial overlays are disconnected', overlay.facialOverlaysEnabled === false && overlay.overlay === null, JSON.stringify(overlay));
       const metrics = app.getAppMetrics();
