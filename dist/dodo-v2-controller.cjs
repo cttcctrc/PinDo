@@ -56,11 +56,13 @@
   class AssetStore {
     constructor(baseUrl, limit = 2, fetcher = fetch) {
       this.baseUrl = baseUrl.replace(/\/$/, ""); this.limit = limit; this.fetcher = fetcher;
-      this.records = new Map(); this.peakBytes = 0;
+      this.records = new Map(); this.peakBytes = 0; this.activeKey = null;
     }
+    key(assetPath, manifestPath) { return `${assetPath}|${manifestPath}`; }
+    activate(assetPath, manifestPath) { this.activeKey = this.key(assetPath, manifestPath); return this.activeKey; }
     url(path) { return `${this.baseUrl}/${String(path).replace(/^\.\//, "")}`; }
     async load(assetPath, manifestPath) {
-      const key = `${assetPath}|${manifestPath}`;
+      const key = this.key(assetPath, manifestPath);
       if (this.records.has(key)) { const record = this.records.get(key); record.usedAt = performance.now(); return record; }
       if (!("ImageDecoder" in root)) throw new Error("Animated WebP requires the ImageDecoder API");
       const request = this.fetcher.bind(root);
@@ -70,7 +72,7 @@
       const decoder = new root.ImageDecoder({ data, type: "image/webp", preferAnimation: true });
       await decoder.tracks.ready;
       const record = { key, assetPath, manifestPath, data, manifest, decoder, usedAt: performance.now(), bytes: data.byteLength };
-      this.records.set(key, record); this.trim(new Set([key])); this.updatePeak(); return record;
+      this.records.set(key, record); this.trim(new Set([key, this.activeKey].filter(Boolean))); this.updatePeak(); return record;
     }
     trim(keep = new Set()) {
       const candidates = [...this.records.values()].filter(item => !keep.has(item.key)).sort((a, b) => a.usedAt - b.usedAt);
@@ -81,7 +83,7 @@
     releaseExcept(keys) { this.trim(new Set(keys)); }
     updatePeak() { this.peakBytes = Math.max(this.peakBytes, [...this.records.values()].reduce((sum, item) => sum + item.bytes, 0)); }
     stats() { return { loadedAssets: this.records.size, compressedBytes: [...this.records.values()].reduce((s, r) => s + r.bytes, 0), peakCompressedBytes: this.peakBytes }; }
-    close() { for (const item of this.records.values()) item.decoder.close?.(); this.records.clear(); }
+    close() { for (const item of this.records.values()) item.decoder.close?.(); this.records.clear(); this.activeKey = null; }
   }
 
   class CanvasRenderer {
@@ -129,8 +131,10 @@
     }
     async play(state, spec, options = {}) {
       this.stop(false); const token = ++this.token; this.state = state; this.frameIndex = 0; this.elapsedMs = 0;
-      this.onFrame = options.onFrame || null; this.onError = options.onError || null; this.record = await this.store.load(spec.asset, spec.anchors);
+      this.onFrame = options.onFrame || null; this.onError = options.onError || null; this.store.activate(spec.asset, spec.anchors);
+      const record = await this.store.load(spec.asset, spec.anchors);
       if (token !== this.token) return false;
+      this.record = record;
       this.loop = Boolean(spec.loop); this.safeExitFrame = spec.safe_exit_frame ?? 0; this.onComplete = options.onComplete || null;
       this.requestedExit = null; await this.decodeAndShow(token); return true;
     }

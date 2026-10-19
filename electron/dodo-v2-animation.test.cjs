@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, CanvasRenderer, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
+const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, AssetStore, CanvasRenderer, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
 
 const root = path.join(__dirname, '..');
 const runtimeRoot = path.join(root, 'dist', 'assets', 'dodo', 'v2');
@@ -131,6 +131,33 @@ test('one visual fall cycle lands from the player completion callback', () => {
   let landed = 0;
   DodoV2Controller.prototype.onComplete.call({ land() { landed += 1; } }, 'fall_loop', { playOnce: true });
   assert.equal(landed, 1);
+});
+
+test('on-demand cache never evicts the active animation while preloading the next one', () => {
+  const closed = [];
+  const store = new AssetStore('/dodo', 2, async () => { throw new Error('unused'); });
+  for (const key of ['current|current.json', 'old|old.json', 'next|next.json']) {
+    store.records.set(key, { key, usedAt: key.startsWith('old') ? 1 : 2, decoder: { close() { closed.push(key); } }, bytes: 1 });
+  }
+  store.activate('current', 'current.json');
+  store.trim(new Set(['next|next.json', store.activeKey]));
+  assert.deepEqual([...store.records.keys()].sort(), ['current|current.json', 'next|next.json']);
+  assert.deepEqual(closed, ['old|old.json']);
+});
+
+test('a stale drag load cannot replace the newer release animation record', async () => {
+  let resolveDrag, resolveRelease;
+  const makeRecord = name => ({ key: name, manifest: { frames: [{ frame: 0, duration_ms: 1000 }] }, decoder: { tracks: { selectedTrack: { frameCount: 1 } }, async decode() { return { image: { duration: 1_000_000, close() {} } }; } } });
+  const store = {
+    activate() {},
+    load(asset) { return new Promise(resolve => { if (asset === 'drag') resolveDrag = () => resolve(makeRecord('drag')); else resolveRelease = () => resolve(makeRecord('release')); }); }
+  };
+  const player = new MainPlayer(store, { setMain() {}, clear() {} }, () => Date.now());
+  const drag = player.play('stand_to_drag', { asset: 'drag', anchors: 'drag.json', loop: false });
+  const release = player.play('drag_release_to_fall', { asset: 'release', anchors: 'release.json', loop: false });
+  resolveRelease(); await release; resolveDrag(); await drag;
+  assert.equal(player.record.key, 'release');
+  player.stop();
 });
 
 test('renderer contract uses WebCodecs duration and bounded on-demand caches', () => {
