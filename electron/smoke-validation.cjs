@@ -25,15 +25,17 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
     if (hasDodoV2) {
       const initial = await waitFor(() => mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test?.diagnostics()?.firstFrameAt ? window.__pindoDodoV2Test.diagnostics() : null"));
       check('Dodo V2 first frame decoded', initial.state === 'idle_stand' && initial.startupMs >= 0, JSON.stringify(initial));
+      const standingPlayback = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.renderedFrames>${Number(initial.renderedFrames)} ? d : null; })()`), 5000);
+      check('Dodo V2 standing animation advances beyond first frame', standingPlayback.frameIndex > 0 && !standingPlayback.playbackError, JSON.stringify(standingPlayback));
       const states = ['idle_sit','doze_loop','sleep_loop','disappointed','melt_loop','stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','drag_release_to_fall','fall_loop','fall_to_stand','idle_stand'];
       for (const state of states) {
         const decoded = await mainWindow.webContents.executeJavaScript(`window.__pindoDodoV2Test.enter(${JSON.stringify(state)}).then(() => window.__pindoDodoV2Test.diagnostics())`);
-        check(`Dodo V2 decodes ${state}`, decoded.state === state, JSON.stringify(decoded));
+        check(`Dodo V2 decodes ${state}`, decoded.state === state && !decoded.playbackError, JSON.stringify(decoded));
+        const advanced = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.renderedFrames>${Number(decoded.renderedFrames)} ? d : null; })()`), 5000);
+        check(`Dodo V2 advances ${state}`, !advanced.playbackError, JSON.stringify(advanced));
       }
-      await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.blink()");
-      await wait(120);
       const overlay = await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.diagnostics()");
-      check('Dodo V2 overlay starts on demand', overlay.overlay === 'blink', JSON.stringify(overlay));
+      check('Dodo V2 facial overlays are disconnected', overlay.facialOverlaysEnabled === false && overlay.overlay === null, JSON.stringify(overlay));
       const metrics = app.getAppMetrics();
       const workingSetKb = metrics.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0), 0);
       report.performance = { dodoStartupMs: initial.startupMs, animationPeakCompressedBytes: overlay.peakCompressedBytes, decodedFrameEstimateBytes: overlay.decodedFrameEstimateBytes, appWorkingSetKb: workingSetKb };

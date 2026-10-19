@@ -311,8 +311,8 @@
       await dodoController.start();
       window.__pindoDodoV2Test = Object.freeze({
         enter: stateName => dodoController.enter(stateName, { reason: "smoke.direct" }),
-        blink: () => dodoController.playBlink(),
-        mouth: () => dodoController.playMouth(),
+        drag: event => dodoController.startDrag(event),
+        release: () => dodoController.releaseDrag(),
         diagnostics: () => window.__pindoDodoV2Diagnostics
       });
     }
@@ -327,7 +327,6 @@
     if (!dodoController) return false;
     if (["sad_enter", "sad_loop"].includes(name)) dodoController.disappointed();
     else if (["depressed_enter", "depressed_hold"].includes(name)) dodoController.disappointed({ severity: "high" });
-    else if (name === "blink") dodoController.playBlink();
     else dodoController.wake();
     return true;
   }

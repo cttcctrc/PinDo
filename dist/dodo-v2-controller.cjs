@@ -10,6 +10,9 @@
     melt_loop: "melt_to_drag"
   });
   const OVERLAY_STATES = new Set(["idle_stand", "idle_sit"]);
+  // P0 recovery policy: facial overlays remain packaged for a later, isolated
+  // optimization pass, but are deliberately disconnected from this runtime.
+  const FACIAL_OVERLAYS_ENABLED = false;
 
   const between = (random, min, max) => min + random() * (max - min);
   const sitBranch = random => random() < .35 ? "sit_to_doze" : "sit_to_stand";
@@ -121,7 +124,7 @@
     }
     async play(state, spec, options = {}) {
       this.stop(false); const token = ++this.token; this.state = state; this.frameIndex = 0; this.elapsedMs = 0;
-      this.onFrame = options.onFrame || null; this.record = await this.store.load(spec.asset, spec.anchors);
+      this.onFrame = options.onFrame || null; this.onError = options.onError || null; this.record = await this.store.load(spec.asset, spec.anchors);
       if (token !== this.token) return false;
       this.loop = Boolean(spec.loop); this.safeExitFrame = spec.safe_exit_frame ?? 0; this.onComplete = options.onComplete || null;
       this.requestedExit = null; await this.decodeAndShow(token); return true;
@@ -130,7 +133,13 @@
       if (token !== this.token || !this.record) return;
       const count = this.record.decoder.tracks.selectedTrack.frameCount;
       const index = Math.min(this.frameIndex, Math.max(0, count - 1));
-      const result = await this.record.decoder.decode({ frameIndex: index, completeFramesOnly: true });
+      let result;
+      try {
+        result = await this.record.decoder.decode({ frameIndex: index, completeFramesOnly: true });
+      } catch (error) {
+        if (token === this.token) this.onError?.(error, { state: this.state, frame: index });
+        return;
+      }
       if (token !== this.token) { result.image.close(); return; }
       this.currentFrame?.close?.(); this.currentFrame = result.image;
       const manifestFrame = manifestFrames(this.record.manifest)[index];
@@ -151,7 +160,7 @@
     exitAtSafeFrame(callback) { if (!this.loop || this.frameIndex === this.safeExitFrame) { callback(); return; } this.requestedExit = callback; }
     pause() { if (this.paused) return; this.paused = true; if (this.timer) clearTimeout(this.timer); this.timer = 0; this.remaining = Math.max(0, this.deadline - this.now()); }
     resume() { if (!this.paused) return; this.paused = false; const token = this.token; this.deadline = this.now() + this.remaining; this.timer = setTimeout(() => this.nextAction === "complete" ? this.finish(token) : this.decodeAndShow(token), this.remaining); }
-    stop(clear = true) { if (this.timer) clearTimeout(this.timer); this.timer = 0; this.requestedExit = null; this.onComplete = null; this.onFrame = null; ++this.token; this.currentFrame?.close?.(); this.currentFrame = null; this.record = null; if (clear) this.renderer.clear(); }
+    stop(clear = true) { if (this.timer) clearTimeout(this.timer); this.timer = 0; this.requestedExit = null; this.onComplete = null; this.onFrame = null; this.onError = null; ++this.token; this.currentFrame?.close?.(); this.currentFrame = null; this.record = null; if (clear) this.renderer.clear(); }
   }
 
   class OverlayPlayer {
@@ -190,10 +199,8 @@
       this.landingMetrics = null;
       this.renderer = new CanvasRenderer(options.canvas, options.hostElement);
       this.store = new AssetStore(options.assetBase, 2, options.fetcher || fetch);
-      this.overlayStore = new AssetStore(options.assetBase, 3, options.fetcher || fetch);
       this.player = new MainPlayer(this.store, this.renderer);
-      this.overlayPlayer = new OverlayPlayer(this.overlayStore, this.renderer);
-      this.diagnostics = { startedAt: performance.now(), firstFrameAt: 0, transitions: [], landings: 0, drags: 0 };
+      this.diagnostics = { startedAt: performance.now(), firstFrameAt: 0, transitions: [], landings: 0, drags: 0, renderedFrames: 0, playbackError: null };
     }
     async start() {
       const response = await (this.options.fetcher || fetch)(this.options.configUrl); if (!response.ok) throw new Error("Dodo V2 state machine unavailable");
@@ -201,10 +208,10 @@
       this.diagnostics.firstFrameAt = performance.now(); this.publishDiagnostics();
     }
     publishDiagnostics() {
-      const stores = [this.store.stats(), this.overlayStore.stats()];
+      const stores = [this.store.stats()];
       const compressed = stores.reduce((sum, item) => sum + item.compressedBytes, 0);
       const peak = stores.reduce((sum, item) => sum + item.peakCompressedBytes, 0);
-      root.__pindoDodoV2Diagnostics = { ...this.diagnostics, state: this.state, overlay: this.overlayKind || null, startupMs: this.diagnostics.firstFrameAt ? this.diagnostics.firstFrameAt - this.diagnostics.startedAt : null, loadedCompressedBytes: compressed, peakCompressedBytes: peak, decodedFrameEstimateBytes: this.renderer.main?.frame ? 1024 * 1024 * 4 : 0 };
+      root.__pindoDodoV2Diagnostics = { ...this.diagnostics, state: this.state, frameIndex: this.player.frameIndex, overlay: null, facialOverlaysEnabled: FACIAL_OVERLAYS_ENABLED, startupMs: this.diagnostics.firstFrameAt ? this.diagnostics.firstFrameAt - this.diagnostics.startedAt : null, loadedCompressedBytes: compressed, peakCompressedBytes: peak, decodedFrameEstimateBytes: this.renderer.main?.frame ? 1024 * 1024 * 4 : 0 };
     }
     spec(state) { return this.config.states[state]; }
     async enter(state, meta = {}) {
@@ -214,16 +221,17 @@
       this.diagnostics.transitions.push({ from: previous, to: state, reason: meta.reason || "transition", at: Date.now() });
       if (this.diagnostics.transitions.length > 120) this.diagnostics.transitions.shift();
       const nextState = spec.next || spec.default_next || null;
-      await this.player.play(state, spec, { onFrame: detail => this.onFrame(detail, meta), onComplete: () => this.onComplete(state, meta) });
+      await this.player.play(state, spec, { onFrame: detail => this.onFrame(detail, meta), onComplete: () => this.onComplete(state, meta), onError: (error, detail) => this.onPlaybackError(error, detail) });
       if (nextState) this.store.load(this.spec(nextState).asset, this.spec(nextState).anchors).catch(() => {});
       if (state === "idle_stand") this.scheduleStand();
       if (state === "idle_sit") this.scheduleSitBranch();
       if (state === "doze_loop") this.scheduleDoze();
       if (state === "melt_loop") this.timers.set("melt-recover", this.config.config_defaults_ms.melt_max_display, () => this.recover());
-      if (OVERLAY_STATES.has(state)) this.scheduleOverlays();
       this.publishDiagnostics();
     }
     onFrame(detail, meta) {
+      this.diagnostics.renderedFrames += 1;
+      this.diagnostics.playbackError = null;
       if (this.state === "fall_to_stand" && this.landingMetrics && detail.anchor?.ground_anchor) {
         const metrics = this.landingMetrics;
         const currentGround = metrics.hostY + metrics.canvasTop + detail.anchor.ground_anchor[1] * metrics.scale;
@@ -233,6 +241,10 @@
       if (this.pendingDrag && this.state === "melt_loop" && detail.frame === (this.spec("melt_loop").safe_exit_frame || 0)) { this.pendingDrag = false; this.beginDragTransition(); }
       if (this.state === "disappointed" && meta.melt && detail.frame >= (this.spec("disappointed").melt_branch_frame || 19)) this.enter("disappointed_to_melt", { reason: "emotion.melt_branch" });
       this.options.onFrame?.(detail); this.publishDiagnostics();
+    }
+    onPlaybackError(error, detail) {
+      this.diagnostics.playbackError = { message: String(error?.message || error), state: detail.state, frame: detail.frame, at: Date.now() };
+      this.publishDiagnostics(); this.options.onPlaybackError?.(error, detail);
     }
     onComplete(state, meta) {
       if (state === "disappointed") { if (!meta.melt) this.enter("idle_stand", { reason: "emotion.complete", guard: true }); return; }
@@ -274,40 +286,12 @@
         this.enter("doze_to_sleep", { reason: "idle.doze_timeout" });
       });
     }
-    scheduleOverlays() {
-      this.scheduleBlink(); this.scheduleMouth();
-    }
-    scheduleBlink() {
-      const [min, max] = this.config.facial_overlays.blink.interval_ms;
-      this.timers.set("blink", between(this.random, min, max), () => this.playBlink());
-    }
-    scheduleMouth() {
-      const spec = this.config.facial_overlays.mouth_open, [min, max] = spec.check_interval_ms;
-      this.timers.set("mouth", between(this.random, min, max), () => {
-        if (!OVERLAY_STATES.has(this.state)) return;
-        if (this.random() < spec.play_probability && this.overlayKind !== "blink") this.playMouth(); else this.scheduleMouth();
-      });
-    }
-    playBlink() {
-      if (!OVERLAY_STATES.has(this.state)) return; this.overlayKind = "blink"; this.overlayPlayer.stop(); this.publishDiagnostics();
-      const spec = this.config.facial_overlays.blink;
-      const parts = [
-        { key: "eye-left", asset: spec.left_asset, manifest: spec.left_manifest, anchorName: "eye_left" },
-        { key: "eye-right", asset: spec.right_asset, manifest: spec.right_manifest, anchorName: "eye_right" }
-      ];
-      const repeat = this.random() < spec.double_blink_probability;
-      const done = () => { if (repeat && this.overlayKind === "blink") { this.overlayPlayer.play("blink", parts, finish); } else finish(); };
-      const finish = () => { this.overlayKind = ""; this.publishDiagnostics(); if (OVERLAY_STATES.has(this.state)) this.scheduleBlink(); };
-      this.overlayPlayer.play("blink", parts, done);
-    }
-    playMouth() {
-      if (!OVERLAY_STATES.has(this.state) || this.overlayKind === "blink") return; this.overlayKind = "mouth"; this.publishDiagnostics();
-      const spec = this.config.facial_overlays.mouth_open;
-      this.overlayPlayer.play("mouth", [{ key: "mouth", asset: spec.asset, manifest: spec.manifest, anchorName: "mouth" }], () => {
-        this.overlayKind = ""; this.publishDiagnostics(); if (OVERLAY_STATES.has(this.state)) this.scheduleMouth();
-      });
-    }
-    stopOverlay() { this.overlayKind = ""; this.overlayPlayer.stop(); this.renderer.clearOverlays(); }
+    scheduleOverlays() { return false; }
+    scheduleBlink() { return false; }
+    scheduleMouth() { return false; }
+    playBlink() { return false; }
+    playMouth() { return false; }
+    stopOverlay() { this.overlayKind = ""; this.renderer.clearOverlays(); }
     pointer(value) { this.pointerDown = Boolean(value); }
     interact() { if (this.state === "doze_loop" || this.state === "sleep_loop") this.wake(); else if (this.state === "idle_stand") this.scheduleStand(); }
     wake() {
@@ -358,9 +342,9 @@
     }
     land() { cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0; this.diagnostics.landings += 1; this.enter("fall_to_stand", { reason: "physics.ground_contact", guard: true, afterComplete: () => { this.landingMetrics = null; this.options.onLanded?.(); } }); }
     applyGuard() { this.standGuardUntil = this.now() + this.config.config_defaults_ms.landing_stand_guard; }
-    pause() { this.timers.pause(); this.player.pause(); this.overlayPlayer.pause(); cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0; }
-    resume() { this.timers.resume(); this.player.resume(); this.overlayPlayer.resume(); if (this.state === "fall_loop") this.startFall(); }
-    destroy() { this.timers.clearAll(); this.player.stop(); this.overlayPlayer.stop(); this.store.close(); this.overlayStore.close(); cancelAnimationFrame(this.physicsRaf); }
+    pause() { this.timers.pause(); this.player.pause(); cancelAnimationFrame(this.physicsRaf); this.physicsRaf = 0; }
+    resume() { this.timers.resume(); this.player.resume(); if (this.state === "fall_loop") this.startFall(); }
+    destroy() { this.timers.clearAll(); this.player.stop(); this.store.close(); cancelAnimationFrame(this.physicsRaf); }
   }
 
   const originalEnter = DodoV2Controller.prototype.enter;
@@ -369,7 +353,7 @@
     return originalEnter.call(this, state, meta);
   };
 
-  const api = { DodoV2Controller, PausableTimers, AssetStore, CanvasRenderer, anchorFrameAt, manifestFrames, between, sitBranch, DRAG_TRANSITIONS, OVERLAY_STATES };
+  const api = { DodoV2Controller, PausableTimers, AssetStore, CanvasRenderer, MainPlayer, anchorFrameAt, manifestFrames, between, sitBranch, DRAG_TRANSITIONS, OVERLAY_STATES, FACIAL_OVERLAYS_ENABLED };
   root.PinDoDodoV2 = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(globalThis);

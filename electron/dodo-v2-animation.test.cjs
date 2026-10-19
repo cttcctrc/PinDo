@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { sitBranch, DRAG_TRANSITIONS, anchorFrameAt, manifestFrames } = require('../dist/dodo-v2-controller.cjs');
+const { sitBranch, DRAG_TRANSITIONS, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
 
 const root = path.join(__dirname, '..');
 const runtimeRoot = path.join(root, 'dist', 'assets', 'dodo', 'v2');
@@ -47,6 +47,31 @@ test('overlay manifests expose pivots and stay within the two allowed base state
     assert.equal(manifest.pivot.length, 2);
     assert.ok(manifest.frames.every(frame => frame.duration_ms > 0));
   }
+});
+
+test('facial overlays are packaged but disconnected from the P0 recovery runtime', () => {
+  const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
+  assert.equal(FACIAL_OVERLAYS_ENABLED, false);
+  assert.doesNotMatch(source, /if \(OVERLAY_STATES\.has\(state\)\) this\.scheduleOverlays\(\)/);
+  assert.doesNotMatch(app, /blink:\s*\(\)\s*=>\s*dodoController\.playBlink/);
+  assert.doesNotMatch(app, /mouth:\s*\(\)\s*=>\s*dodoController\.playMouth/);
+});
+
+test('main player advances beyond the first decoded WebP frame', async () => {
+  const frames = [];
+  const decoder = {
+    tracks: { selectedTrack: { frameCount: 3 } },
+    async decode({ frameIndex }) { return { image: { duration: 10_000, close() {} }, complete: true }; }
+  };
+  const store = { async load() { return { decoder, manifest: { frames: [0, 1, 2].map(frame => ({ frame, time_ms: frame * 10, duration_ms: 10 })) } }; } };
+  const renderer = { setMain(_image, _anchor, state) { frames.push({ state }); }, clear() {} };
+  const player = new MainPlayer(store, renderer, () => Date.now());
+  await player.play('idle_stand', { asset: 'stand.webp', anchors: 'stand.json', loop: true }, { onFrame: detail => { frames.at(-1).frame = detail.frame; } });
+  await new Promise(resolve => setTimeout(resolve, 45));
+  player.stop();
+  assert.ok(frames.length >= 3, JSON.stringify(frames));
+  assert.deepEqual(frames.slice(0, 3).map(item => item.frame), [0, 1, 2]);
 });
 
 test('fixed-seed sitting branch is sampled once and remains within 30-40 percent', () => {
