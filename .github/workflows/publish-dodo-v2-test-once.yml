@@ -15,36 +15,50 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Verify validated Candidate workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_RUN: "39203647112"
+          CANDIDATE_SHA: c583b83e4053ebfc2aa313ff3d94906f3c77b868
+        run: |
+          set -euo pipefail
+          conclusion="$(gh run view "$CANDIDATE_RUN" --repo "${{ github.repository }}" --json conclusion --jq .conclusion)"
+          head_sha="$(gh run view "$CANDIDATE_RUN" --repo "${{ github.repository }}" --json headSha --jq .headSha)"
+          test "$conclusion" = "success"
+          test "$head_sha" = "$CANDIDATE_SHA"
+
       - name: Download exact validated Candidate artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run download 39187586968 \
+          gh run download 39203647112 \
             --repo "${{ github.repository }}" \
-            --name "pindo-dodo-v2-candidate-19" \
+            --name "pindo-dodo-v2-candidate-25" \
             --dir candidate
 
-      - name: Verify approved Candidate bytes and update metadata
+      - name: Verify approved Candidate files and metadata
         shell: bash
         run: |
           set -euo pipefail
-          installer="candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe"
+          installer="candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.57-dodo-v2.3-x64.exe"
           blockmap="${installer}.blockmap"
           metadata="candidate/release-candidate/test.yml"
+          report="candidate/release-candidate/smoke/smoke-report.json"
           test -f "$installer"
           test -f "$blockmap"
           test -f "$metadata"
-          actual="$(sha256sum "$installer" | cut -d ' ' -f 1)"
-          expected="69f99660e206d95d6bb5856cf0ca0c4c963985983854c8c9ca4300b5afeadc00"
-          test "$actual" = "$expected"
-          grep -Eq '^version: 1\.1\.0-beta\.7\.5-rc\.52-dodo-v2\.2$' "$metadata"
+          test -f "$report"
+          grep -Eq '^version: 1\.1\.0-beta\.7\.5-rc\.57-dodo-v2\.3$' "$metadata"
+          node -e 'const r=require("./candidate/release-candidate/smoke/smoke-report.json"); if(!r.passed || r.version!=="1.1.0-beta.7.5-rc.57-dodo-v2.3") process.exit(1)'
+          sha256sum "$installer" | tee candidate-installer.sha256
 
       - name: Publish exact Candidate bytes to test channel
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: v1.1.0-test.75.52
-          CANDIDATE_SHA: 7a7f7b57f170a97ff43797735fc53561c353deb7
+          TAG: v1.1.0-test.75.57
+          CANDIDATE_SHA: c583b83e4053ebfc2aa313ff3d94906f3c77b868
         run: |
           set -euo pipefail
           git init tag-work
@@ -60,12 +74,13 @@ jobs:
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --target "$CANDIDATE_SHA" \
-            --title "PinDo 1.1.0-beta.7.5-rc.52-dodo-v2.2 Dodo V2 test" \
-            --notes "Dodo V2 test-channel release. Facial blink and mouth overlays are disabled. Main standing, sitting, dozing, sleeping, disappointed, melt, drag, fall and landing animations remain enabled. Published from validated Candidate workflow run 39187586968 without rebuilding. Owner explicitly approved publishing before the remaining manual 100-drag and multi-display acceptance checks." \
+            --title "PinDo 1.1.0-beta.7.5-rc.57-dodo-v2.3 Dodo V2 test" \
+            --notes "Dodo V2 test-channel release published from successful Candidate workflow run 39203647112 without rebuilding. Fixes drag transitions getting stuck, prevents animation playback from moving the host window, pins the active animation during preloading, and plays one visual fall cycle before landing recovery. Blink and mouth overlays remain disabled. Owner explicitly approved promotion to the test channel." \
             --prerelease
 
           gh release upload "$TAG" \
-            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe \
-            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe.blockmap \
+            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.57-dodo-v2.3-x64.exe \
+            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.57-dodo-v2.3-x64.exe.blockmap \
             candidate/release-candidate/test.yml \
+            candidate-installer.sha256 \
             --repo "${{ github.repository }}"
