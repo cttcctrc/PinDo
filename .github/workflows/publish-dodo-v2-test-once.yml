@@ -1,0 +1,71 @@
+name: Publish approved Dodo V2 Candidate to test
+
+on:
+  push:
+    branches: [feature/dodo-v2-animation-integration]
+    paths:
+      - .github/workflows/publish-dodo-v2-test-once.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact validated Candidate artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download 39187586968 \
+            --repo "${{ github.repository }}" \
+            --name "pindo-dodo-v2-candidate-19" \
+            --dir candidate
+
+      - name: Verify approved Candidate bytes and update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe"
+          blockmap="${installer}.blockmap"
+          metadata="candidate/release-candidate/test.yml"
+          test -f "$installer"
+          test -f "$blockmap"
+          test -f "$metadata"
+          actual="$(sha256sum "$installer" | cut -d ' ' -f 1)"
+          expected="69f99660e206d95d6bb5856cf0ca0c4c963985983854c8c9ca4300b5afeadc00"
+          test "$actual" = "$expected"
+          grep -Eq '^version: 1\.1\.0-beta\.7\.5-rc\.52-dodo-v2\.2$' "$metadata"
+
+      - name: Publish exact Candidate bytes to test channel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v1.1.0-test.75.52
+          CANDIDATE_SHA: 7a7f7b57f170a97ff43797735fc53561c353deb7
+        run: |
+          set -euo pipefail
+          git init tag-work
+          cd tag-work
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin "$CANDIDATE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$CANDIDATE_SHA"
+          git push origin "$TAG"
+          cd ..
+
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --target "$CANDIDATE_SHA" \
+            --title "PinDo 1.1.0-beta.7.5-rc.52-dodo-v2.2 Dodo V2 test" \
+            --notes "Dodo V2 test-channel release. Facial blink and mouth overlays are disabled. Main standing, sitting, dozing, sleeping, disappointed, melt, drag, fall and landing animations remain enabled. Published from validated Candidate workflow run 39187586968 without rebuilding. Owner explicitly approved publishing before the remaining manual 100-drag and multi-display acceptance checks." \
+            --prerelease
+
+          gh release upload "$TAG" \
+            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe \
+            candidate/release-candidate/PinDo-Desktop-Test-1.1.0-beta.7.5-rc.52-dodo-v2.2-x64.exe.blockmap \
+            candidate/release-candidate/test.yml \
+            --repo "${{ github.repository }}"
