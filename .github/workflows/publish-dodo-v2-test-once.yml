@@ -52,30 +52,32 @@ jobs:
           grep -Eq '^version: 1\.1\.0-beta\.7\.5-rc\.57-dodo-v2\.3$' "$metadata"
           node -e 'const r=require("./candidate/release-candidate/smoke/smoke-report.json"); if(!r.passed || r.version!=="1.1.0-beta.7.5-rc.57-dodo-v2.3") process.exit(1)'
           sha256sum "$installer" | tee candidate-installer.sha256
+          actual_sha="$(sha256sum "$installer" | cut -d " " -f 1)"
+          test "$actual_sha" = "78c3c276254dcf4d9e2dd2538dcc31b3e845fd646179599694d5afe0a8d7a02e"
 
       - name: Publish exact Candidate bytes to test channel
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v1.1.0-test.75.57
-          CANDIDATE_SHA: c583b83e4053ebfc2aa313ff3d94906f3c77b868
+          RELEASE_SOURCE_SHA: e46e479a7412b6fd162a67ed922719ed6f461cad
         run: |
           set -euo pipefail
           git init tag-work
           cd tag-work
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git fetch --no-tags --depth=1 origin "$CANDIDATE_SHA"
+          git fetch --no-tags --depth=1 origin "$RELEASE_SOURCE_SHA"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG" "$CANDIDATE_SHA"
+          git tag "$TAG" "$RELEASE_SOURCE_SHA"
           git push origin "$TAG"
           cd ..
 
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
-            --target "$CANDIDATE_SHA" \
+            --target "$RELEASE_SOURCE_SHA" \
             --title "PinDo 1.1.0-beta.7.5-rc.57-dodo-v2.3 Dodo V2 test" \
-            --notes "Dodo V2 test-channel release published from successful Candidate workflow run 39203647112 without rebuilding. Fixes drag transitions getting stuck, prevents animation playback from moving the host window, pins the active animation during preloading, and plays one visual fall cycle before landing recovery. Blink and mouth overlays remain disabled. Owner explicitly approved promotion to the test channel." \
+            --notes "Dodo V2 test-channel release published from successful Candidate workflow run 39203647112 without rebuilding. Fixes drag transitions getting stuck, prevents animation playback from moving the host window, pins the active animation during preloading, and plays one visual fall cycle before landing recovery. Blink and mouth overlays remain disabled. Validated Candidate source c583b83e4053ebfc2aa313ff3d94906f3c77b868. Release source e46e479a7412b6fd162a67ed922719ed6f461cad has identical application files; only the CI workflow directory uses the default-branch tree for tag permission compatibility. Installer SHA-256: 78c3c276254dcf4d9e2dd2538dcc31b3e845fd646179599694d5afe0a8d7a02e. Owner explicitly approved promotion to the test channel." \
             --prerelease
 
           gh release upload "$TAG" \
