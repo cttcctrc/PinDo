@@ -27,7 +27,7 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
       check('Dodo V2 first frame decoded', initial.state === 'idle_stand' && initial.startupMs >= 0, JSON.stringify(initial));
       const standingPlayback = await waitFor(() => mainWindow.webContents.executeJavaScript(`(() => { const d=window.__pindoDodoV2Test.diagnostics(); return d.renderedFrames>${Number(initial.renderedFrames)} ? d : null; })()`), 5000);
       check('Dodo V2 standing animation advances beyond first frame', standingPlayback.frameIndex > 0 && !standingPlayback.playbackError, JSON.stringify(standingPlayback));
-      const states = ['idle_sit','doze_loop','sleep_loop','disappointed','melt_loop','stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','drag_release_to_fall','fall_loop','fall_to_stand','idle_stand'];
+      const states = ['idle_sit','doze_loop','sleep_loop','disappointed','melt_loop','stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','fall_to_stand','idle_stand'];
       for (const state of states) {
         const decoded = await mainWindow.webContents.executeJavaScript(`window.__pindoDodoV2Test.enter(${JSON.stringify(state)}).then(() => window.__pindoDodoV2Test.diagnostics())`);
         check(`Dodo V2 decodes ${state}`, decoded.state === state && !decoded.playbackError, JSON.stringify(decoded));
@@ -43,7 +43,7 @@ async function runSmokeValidation({ app, mainWindow, noteWindowManager, desktopC
           await window.__pindoDodoV2Test.release();
           return { started, dragState, releaseState: window.__pindoDodoV2Test.state() };
         })()`);
-        check(`Dodo V2 releases immediately from ${state}`, release.started && release.dragState === expectedTransition && release.releaseState === 'drag_release_to_fall', JSON.stringify(release));
+        check(`Dodo V2 releases immediately from ${state}`, release.started && release.dragState === expectedTransition && release.releaseState === 'fall_to_stand', JSON.stringify(release));
       }
       await mainWindow.webContents.executeJavaScript("window.__pindoDodoV2Test.enter('idle_stand')");
       const beforeDropBounds = mainWindow.getBounds();

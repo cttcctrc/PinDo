@@ -23,6 +23,8 @@ test('the 22 states have 512px assets and no anchor or overlay dependencies', ()
   assert.equal(config.states.drag_release_to_fall, undefined);
   assert.equal(config.states.fall_loop, undefined);
   assert.equal(config.events['drag.release'][0].to, 'fall_to_stand');
+  const smoke = fs.readFileSync(path.join(root, 'electron/smoke-validation.cjs'), 'utf8');
+  assert.doesNotMatch(smoke, /drag_release_to_fall|['"]fall_loop['"]/);
 });
 
 test('asset store fetches the animation without requesting a frame manifest', async () => {
