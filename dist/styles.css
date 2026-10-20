@@ -703,6 +703,8 @@ button, select, textarea { font-family: "Segoe UI", "Microsoft YaHei UI", system
   inset: 0; background-image: url("./assets/dodo/tucked-idle.png"); background-size: contain; background-position: right center;
 }
 .assistant.tucked .mascot-button:hover .dodo-art { background-image: url("./assets/dodo/tucked-hover.png"); }
+.assistant.tucked.is-moving .dodo-art { background-image: url("./assets/dodo/tucked-drag-out.png"); }
+body.control-window-mode .assistant.dodo-ready.tucked.is-moving .dodo-art { background-image: url("./assets/dodo/tucked-drag-out.png") !important; }
 .assistant.tucked .notification-badge { right: 24px; bottom: 12px; }
 .assistant.tucked .mascot-button:hover { transform: translateX(-5px); }
 .assistant:not(.tucked) .mascot-button:hover { transform: translateY(-3px) scale(1.02); }
