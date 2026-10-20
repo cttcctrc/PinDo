@@ -3,4 +3,3 @@ release/
 release-*/
 *.log
 *.zip
-dist/assets/dodo/v2/**/*.webp*

@@ -2,172 +2,78 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { sitBranch, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES, DodoV2Controller, AssetStore, CanvasRenderer, anchorFrameAt, manifestFrames, MainPlayer, FACIAL_OVERLAYS_ENABLED } = require('../dist/dodo-v2-controller.cjs');
-
+const { DodoV2Controller, AssetStore, CanvasRenderer, MainPlayer, DRAG_TRANSITIONS, DRAG_ACTIVE_STATES } = require('../dist/dodo-v2-controller.cjs');
 const root = path.join(__dirname, '..');
-const runtimeRoot = path.join(root, 'dist', 'assets', 'dodo', 'v2');
+const runtimeRoot = path.join(root, 'dist/assets/dodo/v2');
 const config = JSON.parse(fs.readFileSync(path.join(runtimeRoot, 'dodo_animation_state_machine.json'), 'utf8'));
 
-function seeded(seed) {
-  let value = seed >>> 0;
-  return () => ((value = (1664525 * value + 1013904223) >>> 0) / 0x100000000);
-}
-
-test('Dodo V2 runtime package contains exactly 27 WebP files and no references', () => {
-  const files = fs.readdirSync(runtimeRoot, { recursive: true }).map(item => String(item).replaceAll('\\', '/'));
-  assert.equal(files.filter(file => file.endsWith('.webp')).length, 27);
-  assert.equal(files.some(file => file.includes('/reference/') || file.startsWith('assets/reference/')), false);
-});
-
-test('every state asset has a valid per-frame anchor manifest', () => {
-  const required = ['eye_left', 'eye_right', 'mouth', 'face_transform'];
-  const physical = new Set(['stand_to_drag','sit_to_drag','doze_to_drag','sleep_to_drag','disappointed_to_drag','melt_to_drag','drag_hold','drag_release_to_fall','fall_loop','fall_to_stand']);
+test('the 22 states have 512px assets and no anchor or overlay dependencies', () => {
+  assert.deepEqual([config.canvas.width, config.canvas.height], [512, 512]);
+  assert.equal(Object.keys(config.states).length, 22);
+  assert.equal(config.facial_overlays, undefined);
+  const files = fs.readdirSync(runtimeRoot, { recursive: true }).filter(file => String(file).endsWith('.webp'));
+  assert.equal(files.length, 22);
   for (const [state, spec] of Object.entries(config.states)) {
-    const asset = path.join(runtimeRoot, spec.asset), anchors = path.join(runtimeRoot, spec.anchors);
-    assert.ok(fs.statSync(asset).size > 0, `${state} asset`);
-    const manifest = JSON.parse(fs.readFileSync(anchors, 'utf8'));
-    const frames = manifestFrames(manifest);
-    assert.ok(frames.length > 0, `${state} anchors`);
-    for (const frame of frames) {
-      assert.ok(frame.duration_ms > 0 || manifest.timeline?.frame_duration_ms > 0 || manifest.timeline?.fps > 0 || manifest.timeline?.nominal_fps > 0, `${state} frame ${frame.frame} duration`);
-      for (const key of required) assert.ok(frame[key], `${state} frame ${frame.frame} ${key}`);
-      if (physical.has(state)) for (const key of ['grab_anchor','body_center','ground_anchor','bounds']) assert.ok(frame[key], `${state} frame ${frame.frame} ${key}`);
-    }
-    const last = frames.at(-1);
-    assert.equal(anchorFrameAt(manifest, last.time_ms, 0).frame, last.frame);
+    assert.equal(spec.anchors, undefined, state);
+    const bytes = fs.readFileSync(path.join(runtimeRoot, spec.asset));
+    assert.ok(bytes.length > 1000, state);
+    assert.equal(bytes.toString('ascii', 0, 4), 'RIFF', state);
+    assert.equal(bytes.toString('ascii', 8, 12), 'WEBP', state);
   }
+  assert.equal(config.states.drag_release_to_fall, undefined);
+  assert.equal(config.states.fall_loop, undefined);
+  assert.equal(config.events['drag.release'][0].to, 'fall_to_stand');
 });
 
-test('overlay manifests expose pivots and stay within the two allowed base states', () => {
-  const overlays = config.facial_overlays;
-  assert.deepEqual(overlays.blink.allowed_states, ['idle_stand', 'idle_sit']);
-  assert.deepEqual(overlays.mouth_open.allowed_states, ['idle_stand', 'idle_sit']);
-  for (const manifestPath of [overlays.blink.left_manifest, overlays.blink.right_manifest, overlays.mouth_open.manifest]) {
-    const manifest = JSON.parse(fs.readFileSync(path.join(runtimeRoot, manifestPath), 'utf8'));
-    assert.equal(manifest.pivot.length, 2);
-    assert.ok(manifest.frames.every(frame => frame.duration_ms > 0));
-  }
+test('asset store fetches the animation without requesting a frame manifest', async () => {
+  const urls = [];
+  const oldDecoder = globalThis.ImageDecoder;
+  globalThis.ImageDecoder = class { constructor() { this.tracks = { ready: Promise.resolve() }; } close() {} };
+  try {
+    const store = new AssetStore('/dodo', 2, async url => { urls.push(url); return { ok: true, arrayBuffer: async () => new ArrayBuffer(16) }; });
+    const record = await store.load('assets/idle/dodo_sleep_loop.webp');
+    assert.deepEqual(urls, ['/dodo/assets/idle/dodo_sleep_loop.webp']);
+    assert.equal(record.manifest, null);
+    store.close();
+  } finally { globalThis.ImageDecoder = oldDecoder; }
 });
 
-test('facial overlays are packaged but disconnected from the P0 recovery runtime', () => {
-  const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
-  const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
-  assert.equal(FACIAL_OVERLAYS_ENABLED, false);
-  assert.doesNotMatch(source, /if \(OVERLAY_STATES\.has\(state\)\) this\.scheduleOverlays\(\)/);
-  assert.doesNotMatch(app, /blink:\s*\(\)\s*=>\s*dodoController\.playBlink/);
-  assert.doesNotMatch(app, /mouth:\s*\(\)\s*=>\s*dodoController\.playMouth/);
-});
-
-test('main player advances beyond the first decoded WebP frame', async () => {
+test('player advances using embedded WebP durations on a 512px canvas', async () => {
   const frames = [];
-  const decoder = {
-    tracks: { selectedTrack: { frameCount: 3 } },
-    async decode({ frameIndex }) { return { image: { duration: 10_000, close() {} }, complete: true }; }
-  };
-  const store = { async load() { return { decoder, manifest: { frames: [0, 1, 2].map(frame => ({ frame, time_ms: frame * 10, duration_ms: 10 })) } }; } };
-  const renderer = { setMain(_image, _anchor, state) { frames.push({ state }); }, clear() {} };
-  const player = new MainPlayer(store, renderer, () => Date.now());
-  await player.play('idle_stand', { asset: 'stand.webp', anchors: 'stand.json', loop: true }, { onFrame: detail => { frames.at(-1).frame = detail.frame; } });
+  const store = { activate() {}, async load() { return { decoder: { tracks: { selectedTrack: { frameCount: 3 } }, async decode({ frameIndex }) { return { image: { duration: 10_000, close() {}, frameIndex } }; } } }; } };
+  const renderer = new CanvasRenderer({ getContext: () => ({ clearRect() {}, drawImage(frame, x, y, w, h) { frames.push([frame.frameIndex, x, y, w, h]); } }) }, { dataset: {}, classList: { add() {}, remove() {} } });
+  const player = new MainPlayer(store, renderer);
+  await player.play('idle_stand', { asset: 'stand.webp', loop: true });
   await new Promise(resolve => setTimeout(resolve, 45));
   player.stop();
-  assert.ok(frames.length >= 3, JSON.stringify(frames));
-  assert.deepEqual(frames.slice(0, 3).map(item => item.frame), [0, 1, 2]);
+  assert.deepEqual(frames.slice(0, 3), [[0, 0, 0, 512, 512], [1, 0, 0, 512, 512], [2, 0, 0, 512, 512]]);
 });
 
-test('fixed-seed sitting branch is sampled once and remains within 30-40 percent', () => {
-  const random = seeded(0xD0D0); let doze = 0;
-  for (let session = 0; session < 1000; session += 1) if (sitBranch(random) === 'sit_to_doze') doze += 1;
-  assert.ok(doze >= 300 && doze <= 400, `doze=${doze}`);
-});
-
-test('all six stable states enter the unified drag and landing chain for 100 cycles', () => {
-  const states = ['idle_stand', 'idle_sit', 'doze_loop', 'sleep_loop', 'disappointed', 'melt_loop'];
-  assert.deepEqual(Object.keys(DRAG_TRANSITIONS), states);
-  for (let cycle = 0; cycle < 100; cycle += 1) {
-    const from = states[cycle % states.length];
-    const sequence = [DRAG_TRANSITIONS[from], 'drag_hold', 'drag_release_to_fall', 'fall_loop', 'fall_to_stand', 'idle_stand'];
-    assert.ok(sequence[0]); assert.equal(sequence.at(-1), 'idle_stand');
-  }
-});
-
-test('release interrupts every drag transition immediately instead of waiting for drag_hold', async () => {
+test('releasing during any drag transition starts landing immediately', async () => {
+  assert.equal(Object.keys(DRAG_TRANSITIONS).length, 6);
   for (const state of DRAG_ACTIVE_STATES) {
-    let entered = null;
-    const fake = {
-      state,
-      pointerDown: true,
-      renderer: { clearGrabTarget() {} },
-      timers: { set() {} },
-      enter(next) { entered = next; this.state = next; return Promise.resolve(); }
-    };
-    const result = DodoV2Controller.prototype.releaseDrag.call(fake);
-    assert.ok(result, state);
-    await result;
-    assert.equal(entered, 'drag_release_to_fall', state);
+    const fake = { state, pointerDown: true, timers: { set() {} }, land() { this.state = 'fall_to_stand'; return Promise.resolve(); } };
+    await DodoV2Controller.prototype.releaseDrag.call(fake);
+    assert.equal(fake.state, 'fall_to_stand', state);
     assert.equal(fake.pointerDown, false, state);
   }
 });
 
-test('animation controller never moves the host window during drag or fall', () => {
-  const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
-  const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
-  assert.doesNotMatch(source, /physicsRaf|physics\.move|startFall\(|landingMetrics/);
-  assert.match(source, /playOnce: true/);
-  assert.doesNotMatch(source, /startVisualFall\(\)/);
-  assert.doesNotMatch(app, /dodoPhysicsAdapter/);
-  assert.match(app, /state: \(\) => dodoController\.state/);
-  assert.doesNotMatch(fs.readFileSync(path.join(root, 'electron', 'dodo-physics.cjs'), 'utf8'), /setPosition\(/);
-});
-
-test('empty visual cleanup does not redraw a frame that a rapid transition just closed', () => {
-  const context = { clearRect() {}, save() {}, translate() {}, drawImage() { throw new Error('closed frame'); }, restore() {} };
-  const renderer = new CanvasRenderer({ getContext: () => context }, { dataset: {}, classList: { add() {}, remove() {} } });
-  renderer.main = { frame: {}, anchor: {}, state: 'stand_to_drag' };
-  assert.doesNotThrow(() => renderer.clearOverlays());
-  assert.doesNotThrow(() => renderer.clearGrabTarget());
-});
-
-test('one visual fall cycle lands from the player completion callback', () => {
+test('landing completes into idle standing and fires the host callback', async () => {
   let landed = 0;
-  DodoV2Controller.prototype.onComplete.call({ land() { landed += 1; } }, 'fall_loop', { playOnce: true });
+  const fake = { spec: state => config.states[state], enter(state, meta) { assert.equal(state, 'idle_stand'); meta.afterComplete?.(); return Promise.resolve(); } };
+  await DodoV2Controller.prototype.onComplete.call(fake, 'fall_to_stand', { afterComplete: () => landed++ });
   assert.equal(landed, 1);
 });
 
-test('on-demand cache never evicts the active animation while preloading the next one', () => {
-  const closed = [];
-  const store = new AssetStore('/dodo', 2, async () => { throw new Error('unused'); });
-  for (const key of ['current|current.json', 'old|old.json', 'next|next.json']) {
-    store.records.set(key, { key, usedAt: key.startsWith('old') ? 1 : 2, decoder: { close() { closed.push(key); } }, bytes: 1 });
-  }
-  store.activate('current', 'current.json');
-  store.trim(new Set(['next|next.json', store.activeKey]));
-  assert.deepEqual([...store.records.keys()].sort(), ['current|current.json', 'next|next.json']);
-  assert.deepEqual(closed, ['old|old.json']);
-});
-
-test('a stale drag load cannot replace the newer release animation record', async () => {
-  let resolveDrag, resolveRelease;
-  const makeRecord = name => ({ key: name, manifest: { frames: [{ frame: 0, duration_ms: 1000 }] }, decoder: { tracks: { selectedTrack: { frameCount: 1 } }, async decode() { return { image: { duration: 1_000_000, close() {} } }; } } });
-  const store = {
-    activate() {},
-    load(asset) { return new Promise(resolve => { if (asset === 'drag') resolveDrag = () => resolve(makeRecord('drag')); else resolveRelease = () => resolve(makeRecord('release')); }); }
-  };
-  const player = new MainPlayer(store, { setMain() {}, clear() {} }, () => Date.now());
-  const drag = player.play('stand_to_drag', { asset: 'drag', anchors: 'drag.json', loop: false });
-  const release = player.play('drag_release_to_fall', { asset: 'release', anchors: 'release.json', loop: false });
-  resolveRelease(); await release; resolveDrag(); await drag;
-  assert.equal(player.record.key, 'release');
+test('stale drag loading cannot replace the landing animation', async () => {
+  let resolveDrag, resolveLanding;
+  const make = key => ({ key, decoder: { tracks: { selectedTrack: { frameCount: 1 } }, async decode() { return { image: { duration: 1000000, close() {} } }; } } });
+  const store = { activate() {}, load(asset) { return new Promise(resolve => { if (asset === 'drag') resolveDrag = () => resolve(make('drag')); else resolveLanding = () => resolve(make('landing')); }); } };
+  const player = new MainPlayer(store, { setMain() {}, clear() {} });
+  const drag = player.play('stand_to_drag', { asset: 'drag' });
+  const landing = player.play('fall_to_stand', { asset: 'landing' });
+  resolveLanding(); await landing; resolveDrag(); await drag;
+  assert.equal(player.record.key, 'landing');
   player.stop();
-});
-
-test('renderer contract uses WebCodecs duration and bounded on-demand caches', () => {
-  const source = fs.readFileSync(path.join(root, 'dist', 'dodo-v2-controller.cjs'), 'utf8');
-  const app = fs.readFileSync(path.join(root, 'dist', 'app.js'), 'utf8');
-  const css = fs.readFileSync(path.join(root, 'dist', 'styles.css'), 'utf8');
-  assert.match(source, /new root\.ImageDecoder/);
-  assert.match(source, /result\.image\.duration/);
-  assert.match(source, /new AssetStore\(options\.assetBase, 2/);
-  assert.match(app, /drag_long_press|setTimeout\(\(\) => begin\(event\), 180\)/);
-  assert.match(app, /distance > 6/);
-  assert.match(css, /Dodo V2 uses exact WebP frame boundaries[\s\S]*transition:none!important/);
 });

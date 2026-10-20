@@ -11,8 +11,7 @@
   });
   const DRAG_ACTIVE_STATES = new Set([...Object.values(DRAG_TRANSITIONS), "drag_hold"]);
   const OVERLAY_STATES = new Set(["idle_stand", "idle_sit"]);
-  // P0 recovery policy: facial overlays remain packaged for a later, isolated
-  // optimization pass, but are deliberately disconnected from this runtime.
+  // Animation assets include their own expression; no separate facial overlay is played.
   const FACIAL_OVERLAYS_ENABLED = false;
 
   const between = (random, min, max) => min + random() * (max - min);
@@ -66,9 +65,10 @@
       if (this.records.has(key)) { const record = this.records.get(key); record.usedAt = performance.now(); return record; }
       if (!("ImageDecoder" in root)) throw new Error("Animated WebP requires the ImageDecoder API");
       const request = this.fetcher.bind(root);
-      const [assetResponse, manifestResponse] = await Promise.all([request(this.url(assetPath)), request(this.url(manifestPath))]);
-      if (!assetResponse.ok || !manifestResponse.ok) throw new Error(`Dodo asset unavailable: ${assetPath}`);
-      const [data, manifest] = await Promise.all([assetResponse.arrayBuffer(), manifestResponse.json()]);
+      const assetResponse = await request(this.url(assetPath));
+      if (!assetResponse.ok) throw new Error(`Dodo asset unavailable: ${assetPath}`);
+      const data = await assetResponse.arrayBuffer();
+      const manifest = null;
       const decoder = new root.ImageDecoder({ data, type: "image/webp", preferAnimation: true });
       await decoder.tracks.ready;
       const record = { key, assetPath, manifestPath, data, manifest, decoder, usedAt: performance.now(), bytes: data.byteLength };
@@ -89,7 +89,7 @@
   class CanvasRenderer {
     constructor(canvas, hostElement) {
       this.canvas = canvas; this.hostElement = hostElement; this.context = canvas.getContext("2d", { alpha: true });
-      this.canvas.width = 1024; this.canvas.height = 1024;
+      this.canvas.width = 512; this.canvas.height = 512;
       this.main = null; this.overlays = new Map(); this.grabTarget = null; this.drawOffset = { x: 0, y: 0 };
     }
     setMain(frame, anchor, state) { this.main = { frame, anchor, state }; this.hostElement.dataset.animation = state; this.draw(); }
@@ -103,11 +103,10 @@
     }
     currentAnchor(name) { return this.main?.anchor?.[name] || null; }
     draw() {
-      const ctx = this.context; ctx.clearRect(0, 0, 1024, 1024);
+      const ctx = this.context; ctx.clearRect(0, 0, 512, 512);
       if (!this.main?.frame) return;
-      const grab = this.main.anchor?.grab_anchor;
-      this.drawOffset = this.grabTarget && grab ? { x: this.grabTarget.x - grab[0], y: this.grabTarget.y - grab[1] } : { x: 0, y: 0 };
-      ctx.save(); ctx.translate(this.drawOffset.x, this.drawOffset.y); ctx.drawImage(this.main.frame, 0, 0, 1024, 1024); ctx.restore();
+      this.drawOffset = { x: 0, y: 0 };
+      ctx.drawImage(this.main.frame, 0, 0, 512, 512);
       for (const overlay of this.overlays.values()) this.drawOverlay(overlay);
       this.hostElement.classList.add("dodo-ready");
     }
@@ -120,7 +119,7 @@
       ctx.scale(Number(face.scale) || 1, Number(face.scale) || 1);
       ctx.drawImage(frame, -pivot[0], -pivot[1]); ctx.restore();
     }
-    clear() { this.main = null; this.overlays.clear(); this.context.clearRect(0, 0, 1024, 1024); this.hostElement.classList.remove("dodo-ready"); }
+    clear() { this.main = null; this.overlays.clear(); this.context.clearRect(0, 0, 512, 512); this.hostElement.classList.remove("dodo-ready"); }
   }
 
   class MainPlayer {
@@ -151,10 +150,8 @@
       }
       if (token !== this.token) { result.image.close(); return; }
       this.currentFrame?.close?.(); this.currentFrame = result.image;
-      const manifestFrame = manifestFrames(this.record.manifest)[index];
-      const durationMs = Math.max(1, Number(result.image.duration || 0) / 1000 || Number(manifestFrame?.duration_ms) || Number(this.record.manifest.timeline?.frame_duration_ms) || 56);
-      const anchor = anchorFrameAt(this.record.manifest, this.elapsedMs, index);
-      this.renderer.setMain(this.currentFrame, anchor, this.state); this.onFrame?.({ state: this.state, frame: index, anchor, elapsedMs: this.elapsedMs, durationMs });
+      const durationMs = Math.max(1, Number(result.image.duration || 0) / 1000 || 56);
+      this.renderer.setMain(this.currentFrame, null, this.state); this.onFrame?.({ state: this.state, frame: index, elapsedMs: this.elapsedMs, durationMs });
       if (this.requestedExit && index === this.safeExitFrame) { const done = this.requestedExit; this.requestedExit = null; this.stop(false); done(); return; }
       const next = index + 1;
       if (next >= count && !this.loop) {
@@ -219,7 +216,7 @@
       const stores = [this.store.stats()];
       const compressed = stores.reduce((sum, item) => sum + item.compressedBytes, 0);
       const peak = stores.reduce((sum, item) => sum + item.peakCompressedBytes, 0);
-      root.__pindoDodoV2Diagnostics = { ...this.diagnostics, state: this.state, frameIndex: this.player.frameIndex, overlay: null, facialOverlaysEnabled: FACIAL_OVERLAYS_ENABLED, startupMs: this.diagnostics.firstFrameAt ? this.diagnostics.firstFrameAt - this.diagnostics.startedAt : null, loadedCompressedBytes: compressed, peakCompressedBytes: peak, decodedFrameEstimateBytes: this.renderer.main?.frame ? 1024 * 1024 * 4 : 0 };
+      root.__pindoDodoV2Diagnostics = { ...this.diagnostics, state: this.state, frameIndex: this.player.frameIndex, overlay: null, facialOverlaysEnabled: FACIAL_OVERLAYS_ENABLED, startupMs: this.diagnostics.firstFrameAt ? this.diagnostics.firstFrameAt - this.diagnostics.startedAt : null, loadedCompressedBytes: compressed, peakCompressedBytes: peak, decodedFrameEstimateBytes: this.renderer.main?.frame ? 512 * 512 * 4 : 0 };
     }
     spec(state) { return this.config.states[state]; }
     async enter(state, meta = {}) {
@@ -231,6 +228,7 @@
       const nextState = spec.next || spec.default_next || null;
       const playbackSpec = meta.playOnce ? { ...spec, loop: false } : spec;
       await this.player.play(state, playbackSpec, { onFrame: detail => this.onFrame(detail, meta), onComplete: () => this.onComplete(state, meta), onError: (error, detail) => this.onPlaybackError(error, detail) });
+      if (this.state !== state) return;
       if (nextState) this.store.load(this.spec(nextState).asset, this.spec(nextState).anchors).catch(() => {});
       if (state === "idle_stand") this.scheduleStand();
       if (state === "idle_sit") this.scheduleSitBranch();
@@ -241,7 +239,7 @@
     onFrame(detail, meta) {
       this.diagnostics.renderedFrames += 1;
       this.diagnostics.playbackError = null;
-      if (this.state === "disappointed" && meta.melt && detail.frame >= (this.spec("disappointed").melt_branch_frame || 19)) this.enter("disappointed_to_melt", { reason: "emotion.melt_branch" });
+      if (this.state === "disappointed" && meta.melt && detail.elapsedMs >= (this.spec("disappointed").melt_branch_time_ms || 1056)) this.enter("disappointed_to_melt", { reason: "emotion.melt_branch" });
       this.options.onFrame?.(detail); this.publishDiagnostics();
     }
     onPlaybackError(error, detail) {
@@ -250,16 +248,8 @@
     }
     onComplete(state, meta) {
       if (state === "disappointed") { if (!meta.melt) this.enter("idle_stand", { reason: "emotion.complete", guard: true }); return; }
-      if (state === "fall_loop" && meta.playOnce) { this.land(); return; }
       const next = this.spec(state).next;
       if (!next) return;
-      if (state === "drag_release_to_fall") {
-        const falling = this.enter("fall_loop", { reason: "drag.visual_fall", playOnce: true });
-        this.timers.set("fall-load-watchdog", 5000, () => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_watchdog", guard: true }); });
-        falling.then(() => { this.timers.clear("fall-load-watchdog"); })
-          .catch(() => { if (this.state === "fall_loop") this.enter("idle_stand", { reason: "drag.fall_error", guard: true }); });
-        return;
-      }
       const guard = Boolean(this.spec(state).starts_stand_guard);
       this.enter(next, { reason: `${state}.complete`, guard }).then(() => meta.afterComplete?.());
     }
@@ -328,17 +318,17 @@
       return true;
     }
     releaseDrag() {
-      this.pointerDown = false; this.renderer.clearGrabTarget();
+      this.pointerDown = false;
       if (!DRAG_ACTIVE_STATES.has(this.state)) return false;
-      const released = this.enter("drag_release_to_fall", { reason: "drag.release" });
+      const released = this.land();
       this.timers.set("drag-release-watchdog", 6000, () => {
-        if (DRAG_ACTIVE_STATES.has(this.state) || ["drag_release_to_fall", "fall_loop", "fall_to_stand"].includes(this.state)) {
+        if (this.state === "fall_to_stand") {
           this.enter("idle_stand", { reason: "drag.release_watchdog", guard: true });
         }
       });
       return released;
     }
-    land() { this.diagnostics.landings += 1; this.enter("fall_to_stand", { reason: "drag.visual_land", guard: true, afterComplete: () => this.options.onLanded?.() }); }
+    land() { this.diagnostics.landings += 1; return this.enter("fall_to_stand", { reason: "drag.release", guard: true, afterComplete: () => this.options.onLanded?.() }); }
     applyGuard() { this.standGuardUntil = this.now() + this.config.config_defaults_ms.landing_stand_guard; }
     pause() { this.timers.pause(); this.player.pause(); }
     resume() { this.timers.resume(); this.player.resume(); }

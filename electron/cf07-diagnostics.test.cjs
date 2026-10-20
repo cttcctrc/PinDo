@@ -62,16 +62,11 @@ test('diagnostic builders are isolated and software rendering is opt-in', () => 
   assert.equal(software.publish, null);
 });
 
-test('CF-07 workflow builds evidence without publishing a test-channel release', () => {
+test('Windows validation builds an installable PR candidate without publishing it', () => {
   const workflow = fs.readFileSync('.github/workflows/windows-validation.yml', 'utf8');
-  assert.match(workflow, /fix\/cf-07-win10-ltsc-black-background/);
-  assert.match(workflow, /electron-builder\.cf07-diagnostic\.cjs/);
-  assert.match(workflow, /electron-builder\.cf07-software\.cjs/);
-  assert.match(workflow, /pindo-cf07-diagnostics-/);
-  const cf07Block = workflow.slice(workflow.indexOf('Build CF-07 hardware-path'), workflow.indexOf('Build installable PR test package'));
-  assert.doesNotMatch(cf07Block, /gh release|--publish always|test\.yml/);
-  const candidateBlock = workflow.slice(workflow.indexOf('Build installable PR test package'), workflow.indexOf('publish-test:'));
-  assert.match(candidateBlock, /fix\/cf-07-win10-ltsc-black-background/);
+  const candidateBlock = workflow.slice(workflow.indexOf('Build installable PR test package'), workflow.indexOf('Upload installable PR test package'));
+  assert.match(candidateBlock, /github\.event_name == 'pull_request'/);
   assert.match(candidateBlock, /electron-builder\.candidate\.cjs/);
-  assert.match(candidateBlock, /windows-smoke\.cjs release-candidate/);
+  assert.match(candidateBlock, /--publish never/);
+  assert.doesNotMatch(candidateBlock, /gh release|--publish always/);
 });

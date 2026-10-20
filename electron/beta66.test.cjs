@@ -15,6 +15,6 @@ test('V2 sleep uses dedicated forward transition, loop and wake assets', () => {
 });
 
 test('approved V2 sleep loop asset is present while the legacy path remains unused', () => {
-  assert.ok(fs.statSync(path.join(root, 'dist/assets/dodo/v2/assets/idle/dodo_sleep_loop.webp')).size > 1_000_000);
+  assert.ok(fs.statSync(path.join(root, 'dist/assets/dodo/v2/assets/idle/dodo_sleep_loop.webp')).size > 10_000);
   assert.doesNotMatch(app, /assets\/dodo\/animations\/sleep_loop\.webp/);
 });
