@@ -6,7 +6,8 @@ const { normalizeGroups, createGroupGestures } = require('./native-groups.cjs');
 const { registerCapture } = require('./native-capture.cjs');
 const { createFileIconReader, ICON_VERSION } = require('./file-icon.cjs');
 const { EdgePreview } = require('./edge-preview.cjs');
-function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath}) {
+const { hasUserContent } = require('../dist/content-rules.cjs');
+function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath, diagnostic = null, dockHostPolicy = null, onDiagnostic = () => {}}) {
   const {ipcMain,screen,BrowserWindow,dialog,shell,app}=electron;
   const readIcon = createFileIconReader(electron);
   const refreshedIcons = new Set();
@@ -49,7 +50,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     } finally { refreshingIcons = false; }
   }
   const base=pathToFileURL(indexPath).href;
-  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath});
+  const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath,diagnostic,hostPolicy:dockHostPolicy,onDiagnostic});
   let undockedBounds=null;
   function role(event){
     if(!event?.sender || event.senderFrame!==event.sender.mainFrame)return null;
@@ -82,6 +83,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     if(action==='dock-regions' && kind==='dock'){dock.hit.update(value);return true;}
     if(action==='dock-list' && kind==='dock'){return dock.cards || [];}
     if(action==='dock-hover' && kind==='dock'){dock.setHovered(Boolean(value));return true;}
+    if(action==='dock-preview-probe' && kind==='dock'){return dock.setPreviewProbe(value);}
     if(action==='dodo-nearest' && kind==='control'){const b=mainWindow.getBounds(),w=screen.getDisplayMatching(b).workArea;return b.x+b.width/2<w.x+w.width/2?'left':'right';}
     if(action==='dodo-dock' && kind==='control'){dockDodo(value?.side,value?.scale);return true;}
     if(action==='trash' && kind==='note'){
@@ -94,7 +96,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       await new Promise(resolve=>setTimeout(resolve,50));
       if(win&&!win.isDestroyed())win.hide();
       const state=structuredClone(getStore().state),note=state.notes.find(n=>n.id===id);if(!note)return {cancelled:true};
-      state.recycleBin ||= [];state.recycleBin.unshift({...note,deletedAt:new Date().toISOString()});state.notes=state.notes.filter(n=>n.id!==id);
+      state.recycleBin ||= [];if(hasUserContent(note))state.recycleBin.unshift({...note,deletedAt:new Date().toISOString()});state.notes=state.notes.filter(n=>n.id!==id);
       state.attachments=(state.attachments||[]).filter(l=>l.childId!==id&&l.parentId!==id);
       if(state.reminderState)state.reminderState.activeItems=(state.reminderState.activeItems||[]).filter(i=>i.noteId!==id);
       commit(state);return {accepted:true};

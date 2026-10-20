@@ -1,0 +1,283 @@
+{
+  "schema_version": "2.4.0",
+  "character": "Dodo",
+  "updated_at": "2026-10-19",
+  "canvas": {
+    "width": 512,
+    "height": 512,
+    "origin": "top-left",
+    "units": "px"
+  },
+  "rendering": {
+    "format": "animated/webp",
+    "transparent": true,
+    "alpha_hit_test_threshold": 8,
+    "honor_embedded_frame_durations": true,
+    "crossfade_between_assets": false,
+    "optical_flow_interpolation": false,
+    "single_primary_animation": true
+  },
+  "config_defaults_ms": {
+    "landing_stand_guard": 30000,
+    "stand_before_sit": 60000,
+    "sit_branch_min": 15000,
+    "sit_branch_max": 30000,
+    "doze_before_sleep": 45000,
+    "melt_max_display": 8000,
+    "drag_long_press": 180,
+    "disappointed_cooldown": 300000,
+    "melt_cooldown": 900000
+  },
+  "config_defaults_px": {
+    "drag_slop": 6,
+    "short_drop_distance": 24
+  },
+  "probabilities": {
+    "sit_to_doze_once_per_sit_session": 0.35,
+    "double_blink": 0.1,
+    "mouth_open_per_check": 0.3
+  },
+  "states": {
+    "idle_stand": {
+      "asset": "assets/idle/dodo_idle_stand_loop_v2.webp",
+      "loop": true
+    },
+    "stand_to_sit": {
+      "asset": "assets/idle/dodo_stand_to_sit.webp",
+      "loop": false,
+      "next": "idle_sit"
+    },
+    "idle_sit": {
+      "asset": "assets/idle/dodo_sit_idle_loop.webp",
+      "loop": true
+    },
+    "sit_to_stand": {
+      "asset": "assets/idle/dodo_sit_to_stand.webp",
+      "loop": false,
+      "next": "idle_stand",
+      "starts_stand_guard": true
+    },
+    "sit_to_doze": {
+      "asset": "assets/idle/dodo_sit_to_doze.webp",
+      "loop": false,
+      "next": "doze_loop"
+    },
+    "doze_loop": {
+      "asset": "assets/idle/dodo_doze_loop.webp",
+      "loop": true,
+      "safe_exit_frame": 0
+    },
+    "doze_to_stand": {
+      "asset": "assets/idle/dodo_doze_to_stand.webp",
+      "loop": false,
+      "next": "idle_stand",
+      "starts_stand_guard": true
+    },
+    "doze_to_sleep": {
+      "asset": "assets/idle/dodo_doze_to_sleep.webp",
+      "loop": false,
+      "next": "sleep_loop"
+    },
+    "sleep_loop": {
+      "asset": "assets/idle/dodo_sleep_loop.webp",
+      "loop": true,
+      "safe_exit_frame": 0
+    },
+    "sleep_to_stand": {
+      "asset": "assets/idle/dodo_sleep_to_stand.webp",
+      "loop": false,
+      "next": "idle_stand",
+      "starts_stand_guard": true
+    },
+    "stand_to_drag": {
+      "asset": "assets/drag/dodo_stand_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold"
+    },
+    "sit_to_drag": {
+      "asset": "assets/drag/dodo_sit_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold"
+    },
+    "doze_to_drag": {
+      "asset": "assets/drag/dodo_doze_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold"
+    },
+    "sleep_to_drag": {
+      "asset": "assets/drag/dodo_sleep_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold"
+    },
+    "disappointed_to_drag": {
+      "asset": "assets/drag/dodo_disappointed_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold",
+      "safe_entry_frame": 19
+    },
+    "melt_to_drag": {
+      "asset": "assets/drag/dodo_melt_to_drag.webp",
+      "loop": false,
+      "next": "drag_hold"
+    },
+    "drag_hold": {
+      "asset": "assets/drag/dodo_drag_hold_loop.webp",
+      "loop": true,
+      "safe_exit_frame": 0
+    },
+    "fall_to_stand": {
+      "asset": "assets/drag/dodo_fall_to_stand.webp",
+      "loop": false,
+      "next": "idle_stand",
+      "starts_stand_guard": true
+    },
+    "disappointed": {
+      "asset": "assets/emotion/dodo_disappointed.webp",
+      "loop": false,
+      "default_next": "idle_stand",
+      "melt_branch_time_ms": 1064
+    },
+    "disappointed_to_melt": {
+      "asset": "assets/emotion/dodo_disappointed_to_melt.webp",
+      "loop": false,
+      "next": "melt_loop"
+    },
+    "melt_loop": {
+      "asset": "assets/emotion/dodo_melt_loop.webp",
+      "loop": true,
+      "safe_exit_frame": 0
+    },
+    "melt_to_stand": {
+      "asset": "assets/emotion/dodo_melt_to_stand.webp",
+      "loop": false,
+      "next": "idle_stand",
+      "starts_stand_guard": true
+    }
+  },
+  "events": {
+    "app.show": [
+      {
+        "from": "*",
+        "to": "idle_stand",
+        "unless_resume_state_is_available": true
+      }
+    ],
+    "idle.stand_timeout": [
+      {
+        "from": "idle_stand",
+        "to": "stand_to_sit",
+        "guard": "now >= stand_guard_until && no_modal && no_pending_high_priority_event"
+      }
+    ],
+    "idle.sit_branch": [
+      {
+        "from": "idle_sit",
+        "to": "sit_to_doze",
+        "probability": 0.35,
+        "guard": "one_check_per_sit_session && no_modal && no_pending_high_priority_event"
+      },
+      {
+        "from": "idle_sit",
+        "to": "sit_to_stand",
+        "probability": 0.65,
+        "guard": "one_check_per_sit_session && no_modal && no_pending_high_priority_event"
+      }
+    ],
+    "idle.doze_timeout": [
+      {
+        "from": "doze_loop",
+        "to": "doze_to_sleep",
+        "guard": "no_upcoming_reminder && !pointer_down"
+      }
+    ],
+    "wake": [
+      {
+        "from": "doze_loop",
+        "to": "doze_to_stand"
+      },
+      {
+        "from": "sleep_loop",
+        "to": "sleep_to_stand"
+      }
+    ],
+    "drag.start": [
+      {
+        "from": "idle_stand",
+        "to": "stand_to_drag"
+      },
+      {
+        "from": "idle_sit",
+        "to": "sit_to_drag"
+      },
+      {
+        "from": "doze_loop",
+        "to": "doze_to_drag"
+      },
+      {
+        "from": "sleep_loop",
+        "to": "sleep_to_drag"
+      },
+      {
+        "from": "disappointed",
+        "to": "disappointed_to_drag",
+        "request_safe_entry_frame": 19
+      },
+      {
+        "from": "melt_loop",
+        "to": "melt_to_drag",
+        "at_safe_exit_frame": 0
+      }
+    ],
+    "drag.release": [
+      {
+        "from": "drag_active",
+        "to": "fall_to_stand",
+        "immediate": true
+      }
+    ],
+    "emotion.disappointed": [
+      {
+        "from": "idle_stand",
+        "to": "disappointed",
+        "guard": "now >= disappointed_cooldown_until"
+      }
+    ],
+    "emotion.melt_branch": [
+      {
+        "from": "disappointed",
+        "to": "disappointed_to_melt",
+        "guard": "payload.melt == true || payload.severity == 'high'",
+        "at_elapsed_ms": 1064
+      }
+    ],
+    "emotion.recover": [
+      {
+        "from": "melt_loop",
+        "to": "melt_to_stand",
+        "at_safe_exit_frame": 0
+      }
+    ]
+  },
+  "priority_high_to_low": [
+    "app_visibility",
+    "drag",
+    "landing",
+    "explicit_wake_or_reminder",
+    "emotion",
+    "sleep",
+    "doze",
+    "sit",
+    "stand_idle"
+  ],
+  "landing_policy": {
+    "always_end_in": "idle_stand",
+    "stand_guard_ms": 30000,
+    "reset_guard_on_each_landing": true,
+    "direct_interaction_can_interrupt_guard": true
+  },
+  "known_gaps": [],
+  "compatibility_notes": [
+    "All 22 animations are transparent 512x512 WebP; use embedded frame durations.",
+    "Pointer release immediately plays fall_to_stand without moving the host window."
+  ]
+}

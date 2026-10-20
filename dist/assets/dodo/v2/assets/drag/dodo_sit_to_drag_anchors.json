@@ -1,0 +1,528 @@
+{
+  "asset": "dodo_sit_to_drag.webp",
+  "kind": "transition",
+  "from_state": "idle_sit",
+  "to_state": "drag_hold",
+  "canvas": {
+    "width": 1024,
+    "height": 1024
+  },
+  "frame_count": 12,
+  "fps": 18,
+  "duration_ms": 666,
+  "loop": false,
+  "alpha": true,
+  "alpha_hit_test_threshold": 8,
+  "notes": [
+    "Frame 0 is pixel-identical above alpha threshold 8 to the approved sitting endpoint.",
+    "Frame 11 is pixel-identical above alpha threshold 8 to the drag-hold loop start.",
+    "No opacity crossfade; all silhouettes are crisp real pose frames.",
+    "Position the sprite so grab_anchor follows the pointer while dragging."
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "duration_ms": 56,
+      "eye_left": [
+        415,
+        565
+      ],
+      "eye_right": [
+        568,
+        536
+      ],
+      "mouth": [
+        496,
+        578
+      ],
+      "grab_anchor": [
+        491,
+        340
+      ],
+      "body_center": [
+        520,
+        690
+      ],
+      "ground_anchor": [
+        512,
+        877
+      ],
+      "bounds": {
+        "x": 275,
+        "y": 270,
+        "width": 575,
+        "height": 607
+      },
+      "face_transform": {
+        "center": [
+          492,
+          550
+        ],
+        "scale": 0.7209,
+        "rotation_deg": -10.733
+      }
+    },
+    {
+      "frame": 1,
+      "duration_ms": 55,
+      "eye_left": [
+        413,
+        569
+      ],
+      "eye_right": [
+        570,
+        539
+      ],
+      "mouth": [
+        496,
+        582
+      ],
+      "grab_anchor": [
+        491,
+        337
+      ],
+      "body_center": [
+        521,
+        698
+      ],
+      "ground_anchor": [
+        513,
+        890
+      ],
+      "bounds": {
+        "x": 268,
+        "y": 265,
+        "width": 592,
+        "height": 626
+      },
+      "face_transform": {
+        "center": [
+          492,
+          554
+        ],
+        "scale": 0.74,
+        "rotation_deg": -10.818
+      }
+    },
+    {
+      "frame": 2,
+      "duration_ms": 56,
+      "eye_left": [
+        385,
+        412
+      ],
+      "eye_right": [
+        523,
+        387
+      ],
+      "mouth": [
+        452,
+        431
+      ],
+      "grab_anchor": [
+        506,
+        198
+      ],
+      "body_center": [
+        513,
+        590
+      ],
+      "ground_anchor": [
+        516,
+        795
+      ],
+      "bounds": {
+        "x": 281,
+        "y": 141,
+        "width": 538,
+        "height": 668
+      },
+      "face_transform": {
+        "center": [
+          454,
+          400
+        ],
+        "scale": 0.6493,
+        "rotation_deg": -10.268
+      }
+    },
+    {
+      "frame": 3,
+      "duration_ms": 55,
+      "eye_left": [
+        376,
+        419
+      ],
+      "eye_right": [
+        521,
+        393
+      ],
+      "mouth": [
+        446,
+        439
+      ],
+      "grab_anchor": [
+        504,
+        195
+      ],
+      "body_center": [
+        510,
+        604
+      ],
+      "ground_anchor": [
+        511,
+        819
+      ],
+      "bounds": {
+        "x": 267,
+        "y": 136,
+        "width": 561,
+        "height": 697
+      },
+      "face_transform": {
+        "center": [
+          448,
+          406
+        ],
+        "scale": 0.682,
+        "rotation_deg": -10.166
+      }
+    },
+    {
+      "frame": 4,
+      "duration_ms": 56,
+      "eye_left": [
+        367,
+        424
+      ],
+      "eye_right": [
+        518,
+        397
+      ],
+      "mouth": [
+        440,
+        445
+      ],
+      "grab_anchor": [
+        502,
+        191
+      ],
+      "body_center": [
+        506,
+        618
+      ],
+      "ground_anchor": [
+        506,
+        842
+      ],
+      "bounds": {
+        "x": 253,
+        "y": 130,
+        "width": 585,
+        "height": 727
+      },
+      "face_transform": {
+        "center": [
+          442,
+          410
+        ],
+        "scale": 0.7102,
+        "rotation_deg": -10.138
+      }
+    },
+    {
+      "frame": 5,
+      "duration_ms": 55,
+      "eye_left": [
+        335,
+        405
+      ],
+      "eye_right": [
+        482,
+        377
+      ],
+      "mouth": [
+        395,
+        424
+      ],
+      "grab_anchor": [
+        477,
+        142
+      ],
+      "body_center": [
+        504,
+        596
+      ],
+      "ground_anchor": [
+        517,
+        855
+      ],
+      "bounds": {
+        "x": 237,
+        "y": 90,
+        "width": 578,
+        "height": 788
+      },
+      "face_transform": {
+        "center": [
+          408,
+          391
+        ],
+        "scale": 0.6928,
+        "rotation_deg": -10.784
+      }
+    },
+    {
+      "frame": 6,
+      "duration_ms": 56,
+      "eye_left": [
+        328,
+        405
+      ],
+      "eye_right": [
+        478,
+        377
+      ],
+      "mouth": [
+        389,
+        424
+      ],
+      "grab_anchor": [
+        474,
+        137
+      ],
+      "body_center": [
+        499,
+        601
+      ],
+      "ground_anchor": [
+        511,
+        865
+      ],
+      "bounds": {
+        "x": 227,
+        "y": 85,
+        "width": 589,
+        "height": 804
+      },
+      "face_transform": {
+        "center": [
+          403,
+          391
+        ],
+        "scale": 0.7064,
+        "rotation_deg": -10.574
+      }
+    },
+    {
+      "frame": 7,
+      "duration_ms": 55,
+      "eye_left": [
+        321,
+        405
+      ],
+      "eye_right": [
+        474,
+        378
+      ],
+      "mouth": [
+        382,
+        426
+      ],
+      "grab_anchor": [
+        471,
+        133
+      ],
+      "body_center": [
+        495,
+        606
+      ],
+      "ground_anchor": [
+        505,
+        876
+      ],
+      "bounds": {
+        "x": 217,
+        "y": 80,
+        "width": 599,
+        "height": 821
+      },
+      "face_transform": {
+        "center": [
+          398,
+          392
+        ],
+        "scale": 0.7193,
+        "rotation_deg": -10.008
+      }
+    },
+    {
+      "frame": 8,
+      "duration_ms": 56,
+      "eye_left": [
+        350,
+        432
+      ],
+      "eye_right": [
+        514,
+        408
+      ],
+      "mouth": [
+        431,
+        457
+      ],
+      "grab_anchor": [
+        500,
+        126
+      ],
+      "body_center": [
+        520,
+        506
+      ],
+      "ground_anchor": [
+        541,
+        915
+      ],
+      "bounds": {
+        "x": 242,
+        "y": 89,
+        "width": 593,
+        "height": 827
+      },
+      "face_transform": {
+        "center": [
+          432,
+          420
+        ],
+        "scale": 0.7673,
+        "rotation_deg": -8.326
+      }
+    },
+    {
+      "frame": 9,
+      "duration_ms": 55,
+      "eye_left": [
+        340,
+        435
+      ],
+      "eye_right": [
+        506,
+        411
+      ],
+      "mouth": [
+        422,
+        460
+      ],
+      "grab_anchor": [
+        492,
+        130
+      ],
+      "body_center": [
+        512,
+        509
+      ],
+      "ground_anchor": [
+        532,
+        917
+      ],
+      "bounds": {
+        "x": 231,
+        "y": 93,
+        "width": 599,
+        "height": 825
+      },
+      "face_transform": {
+        "center": [
+          423,
+          423
+        ],
+        "scale": 0.7765,
+        "rotation_deg": -8.227
+      }
+    },
+    {
+      "frame": 10,
+      "duration_ms": 56,
+      "eye_left": [
+        329,
+        439
+      ],
+      "eye_right": [
+        496,
+        416
+      ],
+      "mouth": [
+        411,
+        464
+      ],
+      "grab_anchor": [
+        483,
+        135
+      ],
+      "body_center": [
+        502,
+        513
+      ],
+      "ground_anchor": [
+        522,
+        919
+      ],
+      "bounds": {
+        "x": 219,
+        "y": 98,
+        "width": 604,
+        "height": 823
+      },
+      "face_transform": {
+        "center": [
+          412,
+          428
+        ],
+        "scale": 0.7804,
+        "rotation_deg": -7.842
+      }
+    },
+    {
+      "frame": 11,
+      "duration_ms": 55,
+      "eye_left": [
+        318,
+        442
+      ],
+      "eye_right": [
+        487,
+        419
+      ],
+      "mouth": [
+        401,
+        467
+      ],
+      "grab_anchor": [
+        474,
+        139
+      ],
+      "body_center": [
+        493,
+        516
+      ],
+      "ground_anchor": [
+        512,
+        922
+      ],
+      "bounds": {
+        "x": 207,
+        "y": 102,
+        "width": 609,
+        "height": 821
+      },
+      "face_transform": {
+        "center": [
+          402,
+          430
+        ],
+        "scale": 0.7896,
+        "rotation_deg": -7.75
+      }
+    }
+  ]
+}

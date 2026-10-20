@@ -1,8 +1,10 @@
 /** Canonical store for one-note edits from independent renderer windows. */
+const { reconcileReminderState } = require('./reminder-state.cjs');
+
 class NoteStateStore {
   constructor(state) {
     this.validateState(state);
-    this.state = structuredClone(state);
+    this.state = reconcileReminderState(state, state);
     this.versions = new Map(state.notes.map(note => [note.id, 0]));
     this.revision = 0;
   }
@@ -28,7 +30,9 @@ class NoteStateStore {
     if (this.versions.get(id) !== version) return { accepted: false, reason: 'conflict', current: this.snapshot(id) };
     const existing = this.state.notes[index];
     if (existing.type !== proposed.type) return { accepted: false, reason: 'invalid', current: this.snapshot(id) };
-    this.state.notes[index] = structuredClone(proposed);
+    const nextState = structuredClone(this.state);
+    nextState.notes[index] = structuredClone(proposed);
+    this.state = reconcileReminderState(this.state, nextState);
     this.versions.set(id, version + 1);
     this.revision++;
     return { accepted: true, current: this.snapshot(id) };
@@ -39,12 +43,13 @@ class NoteStateStore {
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== this.revision) {
       return { accepted: false, reason: 'conflict', current: this.fullSnapshot() };
     }
+    const reconciled = reconcileReminderState(this.state, state);
     const nextVersions = new Map();
-    for (const note of state.notes) {
+    for (const note of reconciled.notes) {
       const old = this.state.notes.find(item => item.id === note.id);
       nextVersions.set(note.id, (this.versions.get(note.id) || 0) + (JSON.stringify(old) === JSON.stringify(note) ? 0 : 1));
     }
-    this.state = structuredClone(state);
+    this.state = reconciled;
     this.versions = nextVersions;
     this.revision++;
     return { accepted: true, current: this.fullSnapshot() };

@@ -3,10 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { CloudSyncManager, cloudSafeState, mergeStates, checksum, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
-test('cloud sync removes local-only paths and assets', () => {
+const { CloudSyncManager, cloudSafeState, mergeStates, checksum, composeLocalState } = require('./cloud-sync.cjs');
+test('cloud payload contains no organizer data at all', () => {
   const state = cloudSafeState({ notes: [{ id: 'o', type: 'organizer', desktopItems: [{ id: 'x', name: 'App', path: 'C:/secret.exe', icon: 'data:image/png;base64,x', kind: 'file' }] }, { id: 'q', captureImage: 'data:image/png;base64,y' }], customPets: [{ data: 'large' }] });
-  assert.equal(state.notes[0].desktopItems[0].path, undefined); assert.equal(state.notes[0].desktopItems[0].icon, undefined); assert.equal(state.notes[1].captureImage, undefined); assert.equal(state.customPets, undefined);
+  assert.deepEqual(state.notes.map(note => note.id), ['q']);
+  assert.equal(state.notes[0].captureImage, undefined); assert.equal(state.customPets, undefined);
 });
 test('remote changes keep the note ID and do not create conflict copies', () => {
   const local = { notes: [{ id: 'a', title: 'old' }, { id: 'b', title: 'local only' }] };
@@ -65,10 +66,33 @@ test('racing cloud updates stop retrying rather than creating notes indefinitely
   assert.deepEqual(state.notes.map(note => note.id), ['a']);
 });
 test('cloud checksum is deterministic', () => assert.equal(checksum({ a: 1 }), checksum({ a: 1 })));
-test('cloud payloads preserve this device organizer targets and icons', () => {
-  const remote={notes:[{id:'o',type:'organizer',desktopItems:[{id:'x',name:'Chrome',kind:'app'}]}]};
-  const local={notes:[{id:'o',type:'organizer',desktopItems:[{id:'x',name:'Chrome',kind:'app',path:'C:/Chrome.lnk',icon:'data:image/png;base64,abc',iconVersion:5}]}]};
-  const hydrated=preserveDeviceLocalFields(remote,local);
-  assert.equal(hydrated.notes[0].desktopItems[0].path,'C:/Chrome.lnk');
-  assert.equal(hydrated.notes[0].desktopItems[0].icon,'data:image/png;base64,abc');
+test('historical remote organizer cannot create overwrite or delete the local organizer', () => {
+  const localOrganizer={id:'local-o',type:'organizer',x:-500,y:40,w:520,h:380,organizerView:'list',organizerItemSize:'large',desktopItems:[{id:'x',name:'Local',path:'C:/Local.lnk',icon:'data:image/png;base64,abc'}]};
+  const local={notes:[localOrganizer,{id:'q',type:'quick',title:'local'}],recycleBin:[]};
+  const remote={notes:[{id:'remote-o',type:'organizer',desktopItems:[{id:'z',name:'Remote',path:'/remote'}]},{id:'q',type:'quick',title:'remote'}],recycleBin:[{id:'local-o',type:'organizer',deletedAt:'remote'}]};
+  const syncMerged=mergeStates(cloudSafeState(local),cloudSafeState(remote),{});
+  const full=composeLocalState(syncMerged,local);
+  assert.deepEqual(full.notes.find(note=>note.type==='organizer'),localOrganizer);
+  assert.equal(full.notes.some(note=>note.id==='remote-o'),false);
+  assert.equal(full.recycleBin.some(note=>note.type==='organizer'),false);
+});
+
+test('two devices share normal notes while keeping different organizers', () => {
+  const organizerA={id:'oa',type:'organizer',desktopItems:[{id:'a',path:'C:/A'}]};
+  const organizerB={id:'ob',type:'organizer',desktopItems:[{id:'b',path:'D:/B'}]};
+  const cloud={notes:[{id:'q',type:'quick',title:'shared'}]};
+  const deviceA=composeLocalState(cloud,{notes:[organizerA]});
+  const deviceB=composeLocalState(cloud,{notes:[organizerB]});
+  assert.deepEqual(deviceA.notes.find(note=>note.type==='organizer'),organizerA);
+  assert.deepEqual(deviceB.notes.find(note=>note.type==='organizer'),organizerB);
+  assert.deepEqual(cloudSafeState(deviceA),cloudSafeState(deviceB));
+});
+
+test('conflict merge leaves the complete local organizer byte-for-byte unchanged', () => {
+  const organizer={id:'o',type:'organizer',x:44,y:55,w:600,h:400,organizerView:'grid',desktopItems:[{id:'i',order:2,path:'C:/private',icon:'data:image/png;base64,secret'}]};
+  const local={notes:[organizer,{id:'q',type:'quick',title:'local edit'}]};
+  const remote={notes:[{id:'o',type:'organizer',x:0,y:0,desktopItems:[]},{id:'q',type:'quick',title:'remote edit'}]};
+  const merged=mergeStates(cloudSafeState(local),cloudSafeState(remote),{q:checksum({id:'q',type:'quick',title:'before'})});
+  const full=composeLocalState(merged,local);
+  assert.deepEqual(full.notes.find(note=>note.type==='organizer'),organizer);
 });

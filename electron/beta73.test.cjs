@@ -13,11 +13,12 @@ test('native deletion lets Windows dismiss the confirmation before closing its n
   assert.match(source, /win\.hide\(\)/);
 });
 
-test('organizer local targets survive cloud hydration and icons refresh as one batch', () => {
+test('organizer is composed from device-local state and icons refresh as one batch', () => {
   const cloud = read('electron/cloud-sync.cjs');
   const native = read('electron/native-features.cjs');
-  assert.match(cloud, /preserveDeviceLocalFields/);
-  assert.match(cloud, /\['path', 'icon', 'iconVersion'\]/);
+  assert.match(cloud, /composeLocalState/);
+  assert.match(cloud, /filter\(note => note\?\.type !== 'organizer'\)/);
+  assert.match(cloud, /filter\(note => note\?\.type === 'organizer'\)/);
   assert.match(native, /One atomic renderer update/);
   assert.match(native, /const icon=await readIcon\(file\)/);
 });

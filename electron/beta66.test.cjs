@@ -6,13 +6,15 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'dist/app.js'), 'utf8');
 
-test('sleep holds the final transition frame and wakes by reversing the same sheet', () => {
-  assert.match(app, /sleep_hold:\s*\{ file: "sleep_enter\.webp"[^}]*staticFrame: 17/);
-  assert.match(app, /mood==="sleep"\)playDodoAnimation\("sleep_hold"/);
-  assert.match(app, /dodoStableMood==="sleep"\)steps\.push\(\{name:"sleep_enter",reverse:true\}\)/);
-  assert.doesNotMatch(app, /sleep_loop/);
+test('V2 sleep uses dedicated forward transition, loop and wake assets', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'dist/assets/dodo/v2/dodo_animation_state_machine.json'), 'utf8'));
+  assert.equal(config.states.doze_to_sleep.next, 'sleep_loop');
+  assert.equal(config.states.sleep_loop.loop, true);
+  assert.equal(config.states.sleep_to_stand.next, 'idle_stand');
+  assert.match(app, /dodoController(?:\?\.)?\.wake|dodoController\.wake/);
 });
 
-test('obsolete sleep loop asset is absent', () => {
-  assert.equal(fs.existsSync(path.join(root, 'dist/assets/dodo/animations/sleep_loop.webp')), false);
+test('approved V2 sleep loop asset is present while the legacy path remains unused', () => {
+  assert.ok(fs.statSync(path.join(root, 'dist/assets/dodo/v2/assets/idle/dodo_sleep_loop.webp')).size > 10_000);
+  assert.doesNotMatch(app, /assets\/dodo\/animations\/sleep_loop\.webp/);
 });

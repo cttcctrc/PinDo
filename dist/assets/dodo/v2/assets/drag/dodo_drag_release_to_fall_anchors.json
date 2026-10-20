@@ -1,0 +1,239 @@
+{
+  "asset": "dodo_drag_release_to_fall.webp",
+  "kind": "transition",
+  "from_state": "drag_hold",
+  "to_state": "fall_loop",
+  "canvas": {
+    "width": 1024,
+    "height": 1024
+  },
+  "frame_count": 5,
+  "fps": 18,
+  "duration_ms": 278,
+  "loop": false,
+  "alpha": true,
+  "alpha_hit_test_threshold": 8,
+  "notes": [
+    "Frame 0 matches the approved drag-hold pose above alpha threshold 8.",
+    "Frame 4 matches fall-loop frame 0 above alpha threshold 8.",
+    "No opacity crossfade or ghosted double contour.",
+    "After pointer release, drive screen-space Y with application physics; sprite motion is pose-only."
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "duration_ms": 56,
+      "eye_left": [
+        318,
+        442
+      ],
+      "eye_right": [
+        487,
+        419
+      ],
+      "mouth": [
+        401,
+        467
+      ],
+      "grab_anchor": [
+        474,
+        139
+      ],
+      "body_center": [
+        493,
+        516
+      ],
+      "ground_anchor": [
+        512,
+        922
+      ],
+      "bounds": {
+        "x": 207,
+        "y": 102,
+        "width": 609,
+        "height": 821
+      },
+      "contact_phase": "released",
+      "face_transform": {
+        "center": [
+          402,
+          430
+        ],
+        "scale": 0.7896,
+        "rotation_deg": -7.75
+      }
+    },
+    {
+      "frame": 1,
+      "duration_ms": 55,
+      "eye_left": [
+        317,
+        445
+      ],
+      "eye_right": [
+        487,
+        422
+      ],
+      "mouth": [
+        401,
+        470
+      ],
+      "grab_anchor": [
+        475,
+        143
+      ],
+      "body_center": [
+        493,
+        519
+      ],
+      "ground_anchor": [
+        511,
+        923
+      ],
+      "bounds": {
+        "x": 205,
+        "y": 107,
+        "width": 612,
+        "height": 818
+      },
+      "contact_phase": "released",
+      "face_transform": {
+        "center": [
+          402,
+          434
+        ],
+        "scale": 0.7942,
+        "rotation_deg": -7.705
+      }
+    },
+    {
+      "frame": 2,
+      "duration_ms": 56,
+      "eye_left": [
+        319,
+        443
+      ],
+      "eye_right": [
+        490,
+        422
+      ],
+      "mouth": [
+        397,
+        484
+      ],
+      "grab_anchor": [
+        485,
+        193
+      ],
+      "body_center": [
+        514,
+        642
+      ],
+      "ground_anchor": [
+        515,
+        923
+      ],
+      "bounds": {
+        "x": 198,
+        "y": 94,
+        "width": 664,
+        "height": 829
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          404,
+          432
+        ],
+        "scale": 0.7976,
+        "rotation_deg": -7.001
+      }
+    },
+    {
+      "frame": 3,
+      "duration_ms": 55,
+      "eye_left": [
+        317,
+        447
+      ],
+      "eye_right": [
+        490,
+        427
+      ],
+      "mouth": [
+        395,
+        488
+      ],
+      "grab_anchor": [
+        485,
+        198
+      ],
+      "body_center": [
+        513,
+        646
+      ],
+      "ground_anchor": [
+        514,
+        926
+      ],
+      "bounds": {
+        "x": 195,
+        "y": 100,
+        "width": 669,
+        "height": 826
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          404,
+          437
+        ],
+        "scale": 0.8063,
+        "rotation_deg": -6.595
+      }
+    },
+    {
+      "frame": 4,
+      "duration_ms": 56,
+      "eye_left": [
+        316,
+        452
+      ],
+      "eye_right": [
+        489,
+        432
+      ],
+      "mouth": [
+        394,
+        493
+      ],
+      "grab_anchor": [
+        485,
+        205
+      ],
+      "body_center": [
+        512,
+        650
+      ],
+      "ground_anchor": [
+        512,
+        928
+      ],
+      "bounds": {
+        "x": 193,
+        "y": 108,
+        "width": 672,
+        "height": 820
+      },
+      "contact_phase": "airborne",
+      "face_transform": {
+        "center": [
+          402,
+          442
+        ],
+        "scale": 0.8063,
+        "rotation_deg": -6.595
+      }
+    }
+  ]
+}

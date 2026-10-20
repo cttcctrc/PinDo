@@ -1,0 +1,117 @@
+{
+  "asset": "dodo_mouth_open_overlay.webp",
+  "kind": "facial_overlay",
+  "component": "mouth",
+  "canvas": {
+    "width": 160,
+    "height": 160,
+    "origin": "top-left",
+    "units": "pixels"
+  },
+  "frame_count": 10,
+  "fps": 18,
+  "duration_ms": 555,
+  "loop": false,
+  "alpha": true,
+  "pivot": [
+    80,
+    80
+  ],
+  "notes": [
+    "Place pivot on the current frame mouth anchor.",
+    "Use the same face scale and rotation as the eye overlays.",
+    "First and final visible frames are transparent; do not loop continuously."
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "time_ms": 0,
+      "duration_ms": 56,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 1,
+      "time_ms": 56,
+      "duration_ms": 55,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 2,
+      "time_ms": 111,
+      "duration_ms": 56,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 3,
+      "time_ms": 167,
+      "duration_ms": 55,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 4,
+      "time_ms": 222,
+      "duration_ms": 56,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 5,
+      "time_ms": 278,
+      "duration_ms": 55,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 6,
+      "time_ms": 333,
+      "duration_ms": 56,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 7,
+      "time_ms": 389,
+      "duration_ms": 55,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 8,
+      "time_ms": 444,
+      "duration_ms": 56,
+      "pivot": [
+        80,
+        80
+      ]
+    },
+    {
+      "frame": 9,
+      "time_ms": 500,
+      "duration_ms": 55,
+      "pivot": [
+        80,
+        80
+      ]
+    }
+  ]
+}

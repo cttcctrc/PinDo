@@ -25,7 +25,8 @@ function createCanvasHitTest(win, screen) {
       return true;
     },
     clear() { dragging = false; rectangles = []; refresh(); },
-    get ignored() { return ignored; }
+    get ignored() { return ignored; },
+    get state() { return { ignored: Boolean(ignored), dragging, regionCount: rectangles.length }; }
   };
 }
 module.exports = { createCanvasHitTest };

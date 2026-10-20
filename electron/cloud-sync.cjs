@@ -6,17 +6,44 @@ const SUPABASE = require('./supabase-config.cjs');
 
 function cloudSafeState(state) {
   const copy = structuredClone(state || {});
-  copy.notes = Array.isArray(copy.notes) ? copy.notes.map(note => {
+  copy.notes = Array.isArray(copy.notes) ? copy.notes.filter(note => note?.type !== 'organizer').map(note => {
     const clean = { ...note };
-    if (clean.type === 'organizer') {
-      clean.desktopItems = Array.isArray(clean.desktopItems) ? clean.desktopItems.map(item => ({ id: item.id, name: item.name, kind: item.kind, order: item.order })) : [];
-    }
     for (const key of ['captureImage', 'pinnedImage', 'screenshot', 'imageData', 'localPet', 'customPet']) delete clean[key];
     return clean;
   }) : [];
+  if (Array.isArray(copy.recycleBin)) copy.recycleBin = copy.recycleBin.filter(note => note?.type !== 'organizer');
+  const syncIds = new Set(copy.notes.map(note => note.id));
+  if (Array.isArray(copy.attachments)) copy.attachments = copy.attachments.filter(link => syncIds.has(link.parentId) && syncIds.has(link.childId));
   delete copy.customPets;
   delete copy.petAssets;
   return copy;
+}
+
+function composeLocalState(syncState, localState) {
+  const next = structuredClone(syncState || {});
+  const local = structuredClone(localState || {});
+  const localNotes = new Map((local.notes || []).map(note => [note.id, note]));
+  next.notes = (next.notes || []).filter(note => note?.type !== 'organizer');
+  for (const note of next.notes) {
+    const saved = localNotes.get(note.id);
+    if (!saved) continue;
+    for (const key of ['captureImage', 'pinnedImage', 'screenshot', 'imageData', 'localPet', 'customPet']) {
+      if (note[key] == null && saved[key] != null) note[key] = structuredClone(saved[key]);
+    }
+  }
+  next.notes.push(...(local.notes || []).filter(note => note?.type === 'organizer').map(note => structuredClone(note)));
+  const localRecycledOrganizers = (local.recycleBin || []).filter(note => note?.type === 'organizer').map(note => structuredClone(note));
+  if (Array.isArray(next.recycleBin) || localRecycledOrganizers.length) {
+    next.recycleBin = (next.recycleBin || []).filter(note => note?.type !== 'organizer');
+    next.recycleBin.push(...localRecycledOrganizers);
+  }
+  const organizerIds = new Set([...(local.notes || []), ...(local.recycleBin || [])].filter(note => note?.type === 'organizer').map(note => note.id));
+  const localOrganizerLinks = (local.attachments || []).filter(link => organizerIds.has(link.parentId) || organizerIds.has(link.childId));
+  const links = new Map((next.attachments || []).map(link => [`${link.parentId}:${link.childId}`, link]));
+  for (const link of localOrganizerLinks) links.set(`${link.parentId}:${link.childId}`, structuredClone(link));
+  if (next.attachments || localOrganizerLinks.length) next.attachments = [...links.values()];
+  for (const key of ['customPets', 'petAssets']) if (local[key] != null) next[key] = structuredClone(local[key]);
+  return next;
 }
 
 function checksum(state) { return crypto.createHash('sha256').update(JSON.stringify(state)).digest('hex'); }
@@ -25,24 +52,7 @@ function checksum(state) { return crypto.createHash('sha256').update(JSON.string
 // Re-applying a cloud payload must therefore hydrate, rather than replace,
 // those fields or every successful sync would erase organizer icons/targets.
 function preserveDeviceLocalFields(nextState, localState) {
-  const next = structuredClone(nextState || {});
-  const localNotes = new Map((localState?.notes || []).map(note => [note.id, note]));
-  for (const note of next.notes || []) {
-    const local = localNotes.get(note.id);
-    if (!local) continue;
-    for (const key of ['captureImage', 'pinnedImage', 'screenshot', 'imageData', 'localPet', 'customPet']) {
-      if (note[key] == null && local[key] != null) note[key] = structuredClone(local[key]);
-    }
-    if (note.type !== 'organizer') continue;
-    const localItems = new Map((local.desktopItems || []).map(item => [item.id, item]));
-    for (const item of note.desktopItems || []) {
-      const saved = localItems.get(item.id) || (local.desktopItems || []).find(candidate => candidate.name === item.name && candidate.kind === item.kind);
-      if (!saved) continue;
-      for (const key of ['path', 'icon', 'iconVersion']) if (item[key] == null && saved[key] != null) item[key] = saved[key];
-    }
-  }
-  for (const key of ['customPets', 'petAssets']) if (next[key] == null && localState?.[key] != null) next[key] = structuredClone(localState[key]);
-  return next;
+  return composeLocalState(cloudSafeState(nextState), localState);
 }
 
 function noteHashes(state) {
@@ -136,7 +146,7 @@ class CloudSyncManager {
       // A newer revision with identical content only advances metadata. It
       // must not rebuild every renderer and interrupt typing/dragging.
       if (remote.checksum !== localChecksum) {
-        const merged = preserveDeviceLocalFields(mergeStates(local, remote.state, this.meta.lastSyncedNotes), localFull);
+        const merged = composeLocalState(mergeStates(local, cloudSafeState(remote.state), this.meta.lastSyncedNotes), localFull);
         this.applyState(merged);
       }
       this.meta.revision = remote.revision;
@@ -146,7 +156,7 @@ class CloudSyncManager {
       const pushed = await this.request('/rest/v1/rpc/pindo_push_sync', { method: 'POST', body: JSON.stringify({ p_base_revision: this.meta.revision || remote.revision || 0, p_device_id: this.deviceId, p_payload: current, p_checksum: currentChecksum }) });
       if (pushed.data?.conflict) {
         if (retries >= 3) throw new Error('云同步遇到连续修改，已暂停重试；请稍后再试');
-        const merged = preserveDeviceLocalFields(mergeStates(current, pushed.data.current?.state, this.meta.lastSyncedNotes), this.getState());
+        const merged = composeLocalState(mergeStates(current, cloudSafeState(pushed.data.current?.state), this.meta.lastSyncedNotes), this.getState());
         this.applyState(merged); this.meta.revision = pushed.data.current?.revision || 0;
         return this.runSync('conflict-merge', retries + 1);
       }
@@ -157,4 +167,4 @@ class CloudSyncManager {
   }
 }
 
-module.exports = { CloudSyncManager, cloudSafeState, mergeStates, checksum, preserveDeviceLocalFields };
+module.exports = { CloudSyncManager, cloudSafeState, mergeStates, checksum, composeLocalState, preserveDeviceLocalFields };

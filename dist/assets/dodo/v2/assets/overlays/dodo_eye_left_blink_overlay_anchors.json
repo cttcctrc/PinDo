@@ -1,0 +1,90 @@
+{
+  "asset": "dodo_eye_left_blink_overlay.webp",
+  "kind": "facial_overlay",
+  "component": "eye_left",
+  "canvas": {
+    "width": 128,
+    "height": 128,
+    "origin": "top-left",
+    "units": "pixels"
+  },
+  "frame_count": 7,
+  "fps": 18,
+  "duration_ms": 445,
+  "loop": false,
+  "alpha": true,
+  "pivot": [
+    64,
+    64
+  ],
+  "notes": [
+    "Place pivot on the current frame eye_left anchor.",
+    "Apply face_transform.scale and face_transform.rotation_deg.",
+    "First and final visible frames are transparent; replay for a double blink."
+  ],
+  "frames": [
+    {
+      "frame": 0,
+      "time_ms": 0,
+      "duration_ms": 56,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 1,
+      "time_ms": 56,
+      "duration_ms": 55,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 2,
+      "time_ms": 111,
+      "duration_ms": 56,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 3,
+      "time_ms": 167,
+      "duration_ms": 111,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 4,
+      "time_ms": 278,
+      "duration_ms": 56,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 5,
+      "time_ms": 334,
+      "duration_ms": 55,
+      "pivot": [
+        64,
+        64
+      ]
+    },
+    {
+      "frame": 6,
+      "time_ms": 389,
+      "duration_ms": 56,
+      "pivot": [
+        64,
+        64
+      ]
+    }
+  ]
+}
