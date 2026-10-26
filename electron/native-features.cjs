@@ -1,12 +1,12 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const { pathToFileURL } = require('node:url');
 const { NativeDock } = require('./native-dock.cjs');
 const { normalizeGroups, createGroupGestures } = require('./native-groups.cjs');
 const { registerCapture } = require('./native-capture.cjs');
 const { createFileIconReader, ICON_VERSION } = require('./file-icon.cjs');
 const { EdgePreview } = require('./edge-preview.cjs');
 const { hasUserContent } = require('../dist/content-rules.cjs');
+const { trustedFileSender } = require('./ipc-trust.cjs');
 function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, getCanvasWindow = () => null, getStore, persist, broadcast, indexPath, preloadPath, diagnostic = null, dockHostPolicy = null, onDiagnostic = () => {}}) {
   const {ipcMain,screen,BrowserWindow,dialog,shell,app}=electron;
   const readIcon = createFileIconReader(electron);
@@ -49,14 +49,14 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
       }
     } finally { refreshingIcons = false; }
   }
-  const base=pathToFileURL(indexPath).href;
+  const dockPath=path.join(path.dirname(indexPath),'native-dock.html');
   const dock=new NativeDock({BrowserWindow,screen,indexPath,preloadPath,diagnostic,hostPolicy:dockHostPolicy,onDiagnostic});
   let undockedBounds=null;
   function role(event){
     if(!event?.sender || event.senderFrame!==event.sender.mainFrame)return null;
-    if(event.sender===mainWindow.webContents && event.senderFrame.url.split('?')[0]===base)return 'control';
-    if(event.sender===getCanvasWindow()?.webContents && event.senderFrame.url.split('?')[0]===base)return 'canvas';
-    if(event.sender===dock.window.webContents && event.senderFrame.url.split('?')[0]===pathToFileURL(path.join(path.dirname(indexPath),'native-dock.html')).href)return 'dock';
+    if(trustedFileSender(event,mainWindow.webContents,indexPath))return 'control';
+    if(trustedFileSender(event,getCanvasWindow()?.webContents,indexPath))return 'canvas';
+    if(trustedFileSender(event,dock.window.webContents,dockPath))return 'dock';
     return noteIdentity(event) ? 'note' : null;
   }
   function commit(state){const store=getStore();const result=store.setState(state,store.revision);if(result.accepted){persist(store.serialize());setImmediate(broadcast);}return result;}
@@ -186,7 +186,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     }
   };
   return {dock,groups,gestureHooks,dockDodo,commit,
-    sync(){dock.sync(getStore()?.state.notes||[],getStore()?.state.settings||{});void refreshStoredIcons().catch(error=>console.warn('Icon refresh failed:',error.message));},
+    sync(){dock.sync(getCanvasWindow()?[]:(getStore()?.state.notes||[]),getStore()?.state.settings||{});void refreshStoredIcons().catch(error=>console.warn('Icon refresh failed:',error.message));},
     close(){closed=true;edgePreview.close();if(!dock.window.isDestroyed())dock.window.destroy();capture.close();},
     normalize(){const store=getStore();if(!store)return false;const draft=normalizeGroups(structuredClone(store.state));if(JSON.stringify(draft)!==store.serialize()){store.setState(draft,store.revision);persist(store.serialize());return true;}return false;}
   };

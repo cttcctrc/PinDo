@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { DesktopCanvasManager } = require('./desktop-canvas-manager.cjs');
 
-function fixture(desktopHost, diagnostic = null) {
+function fixture(desktopHost, diagnostic = null, compatibilityMode = false) {
   const calls = [];
   const windowEvents = new Map();
   const webEvents = new Map();
@@ -37,7 +37,7 @@ function fixture(desktopHost, diagnostic = null) {
     },
     indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', desktopHost,
     onReady: () => calls.push(['ready']), onError: () => calls.push(['error']),
-    onDiagnostic: (event, detail) => calls.push(['diagnostic', event, detail]), diagnostic
+    onDiagnostic: (event, detail) => calls.push(['diagnostic', event, detail]), diagnostic, compatibilityMode
   });
   return { calls, manager, windowEvents, webEvents };
 }
@@ -47,10 +47,18 @@ test('canvas stays hidden and unfocused until Explorer attaches, then requests n
   await manager.open();
   assert.equal(manager.active, true);
   assert.deepEqual(calls[0], ['created', false, false, { x: -1920, y: 0, width: 4480, height: 1440 }]);
-  assert.deepEqual(calls.find(call => call[0] === 'load')[1], { canvasWindow: '1', canvasOriginX: '-1920', canvasOriginY: '0' });
+  assert.deepEqual(calls.find(call => call[0] === 'load')[1], { canvasWindow: '1', canvasOriginX: '-1920', canvasOriginY: '0', compatibility: '0' });
   assert.ok(calls.some(call => call[0] === 'send' && call[1] === 'pindo:canvas-refresh-regions'));
   assert.equal(manager.focusEdit(), true);
   assert.ok(calls.some(call => call[0] === 'focusable' && call[1] === true));
+  manager.close();
+});
+
+test('compatibility mode keeps the same desktop canvas and marks the renderer profile', async () => {
+  const { calls, manager } = fixture(async () => ({ attached: true }), null, true);
+  await manager.open();
+  assert.equal(manager.active, true);
+  assert.equal(calls.find(call => call[0] === 'load')[1].compatibility, '1');
   manager.close();
 });
 
@@ -107,20 +115,38 @@ test('CF-07 canvas-hidden mode attaches the canvas but never shows it', async ()
   manager.close();
 });
 
-test('canvas region diagnostics distinguish empty publication timing from rejected updates', async () => {
+test('canvas region diagnostics distinguish computed sent received and rejected updates', async () => {
   const { manager } = fixture(async () => ({ attached: true }));
   await manager.open();
-  assert.equal(manager.regions([]), true);
+  assert.equal(manager.regions([], { computedAt: 10, sentAt: 20, reason: 'test', serializedLength: 2 }), true);
   const empty = manager.interactionState();
   assert.equal(empty.regionCount, 0);
   assert.equal(empty.regionUpdateCount >= 1, true);
   assert.equal(empty.regionRejectedCount, 0);
   assert.equal(Number.isFinite(empty.regionLastUpdatedAt), true);
+  assert.equal(empty.regionLastComputedAt, 10);
+  assert.equal(empty.regionLastSentAt, 20);
+  assert.equal(Number.isFinite(empty.regionLastReceivedAt), true);
   assert.equal(manager.regions([{ x: 10, y: 20, width: 100, height: 80 }]), true);
   assert.equal(manager.interactionState().regionCount, 1);
   assert.equal(Number.isFinite(manager.interactionState().regionLastNonEmptyAt), true);
   assert.equal(manager.regions([{ x: NaN, y: 0, width: 1, height: 1 }]), false);
   assert.equal(manager.interactionState().regionRejectedCount, 1);
+  manager.close();
+});
+
+test('same-cycle Explorer lifecycle events coalesce to one host recovery', async () => {
+  let attachments = 0;
+  const { manager } = fixture(async () => ({ attached: true, parentValid: true, reattached: ++attachments > 1 }));
+  await manager.open();
+  const first = manager.queueDesktopRecovery('show-desktop');
+  const second = manager.queueDesktopRecovery('dwm-composition-change');
+  assert.equal(first, second);
+  await first;
+  const state = manager.interactionState();
+  assert.equal(state.recoveryRequestCount, 2);
+  assert.equal(state.recoveryRunCount, 1);
+  assert.equal(state.recoveryReattachCount, 1);
   manager.close();
 });
 

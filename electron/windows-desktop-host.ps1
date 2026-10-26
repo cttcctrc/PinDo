@@ -53,7 +53,7 @@ public static class PinDoDesktopHost {
         SetWindowLongPtr(note,GWL_STYLE,new IntPtr((style & ~WS_CHILD) | WS_POPUP));
         if (!SetWindowPos(note,new IntPtr(-1),rect.Left,rect.Top,rect.Right-rect.Left,rect.Bottom-rect.Top,SWP_NOACTIVATE | SWP_FRAMECHANGED))
             throw new Win32Exception(Marshal.GetLastWin32Error());
-        Console.WriteLine("desktop-attached");
+        Console.WriteLine("desktop-attached;parent-valid=true;reattached=true;layer=top");
     }
     public static void Attach(long value) {
         SetThreadDpiAwarenessContext(new IntPtr(-4));
@@ -78,6 +78,14 @@ public static class PinDoDesktopHost {
         if (!GetWindowRect(note, out noteRect) || !GetWindowRect(host, out hostRect))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not read desktop window geometry.");
 
+        // Win+D can emit several lifecycle messages while the existing Explorer
+        // child remains valid. Avoid changing styles or calling SetParent again;
+        // doing so caused a visible one-second detach/reattach cycle.
+        if (GetParent(note) == host) {
+            Console.WriteLine("desktop-attached;parent-valid=true;reattached=false;layer=desktop");
+            return;
+        }
+
         IntPtr originalStyle = GetWindowLongPtr(note, GWL_STYLE);
         long style = originalStyle.ToInt64();
         SetWindowLongPtr(note, GWL_STYLE, new IntPtr((style & ~WS_POPUP) | WS_CHILD));
@@ -91,7 +99,7 @@ public static class PinDoDesktopHost {
                 noteRect.Right - noteRect.Left, noteRect.Bottom - noteRect.Top,
                 SWP_NOACTIVATE | SWP_FRAMECHANGED))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not place PinDo on the desktop.");
-        Console.WriteLine("desktop-attached");
+        Console.WriteLine("desktop-attached;parent-valid=true;reattached=true;layer=desktop");
     }
 }
 '@

@@ -19,7 +19,10 @@ function writeDesktopMode(app, enabled) {
 }
 
 function shouldUseDesktopCanvas({ enabled, compatibilityEnabled, platform = process.platform }) {
-  return platform === 'win32' && Boolean(enabled) && !Boolean(compatibilityEnabled);
+  // Compatibility reduces visual effects, but keeps the single Explorer-hosted
+  // canvas. The former multiple transparent-window fallback produces black
+  // rectangles on LTSC systems without DirectComposition.
+  return platform === 'win32' && Boolean(enabled || compatibilityEnabled);
 }
 
 module.exports = { desktopModePath, readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas };

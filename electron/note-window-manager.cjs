@@ -20,8 +20,10 @@ function nativeNoteView(note, displays) {
   const work = area.workArea || area.bounds;
   const width = Math.min(Math.max(Math.round(bounds.width), 280), work.width);
   const height = Math.min(Math.max(Math.round(bounds.height), 210), work.height);
+  const fallbackColor = note.type === 'organizer' ? '#2b2f36' : '#fff0dc';
+  const backgroundColor = /^#[0-9a-f]{6}$/i.test(String(note.color || '')) ? note.color : fallbackColor;
   return {
-    id: note.id, mode: note.mode, type: note.type,
+    id: note.id, mode: note.mode, type: note.type, backgroundColor,
     bounds: {
       x: Math.max(work.x, Math.min(Math.round(bounds.x), work.x + work.width - width)),
       y: Math.max(work.y, Math.min(Math.round(bounds.y), work.y + work.height - height)),
@@ -73,12 +75,13 @@ class NoteWindowManager {
       if (!win || win.isDestroyed()) {
         win = new this.BrowserWindow({
           ...view.bounds, minWidth: 280, minHeight: 210,
-          frame: false, transparent: true, show: false, skipTaskbar: true,
+          frame: false, transparent: !this.compatibilityMode, show: false, skipTaskbar: true,
           resizable: false,
-          backgroundColor: '#00000000', hasShadow: false,
+          backgroundColor: this.compatibilityMode ? view.backgroundColor : '#00000000', hasShadow: false,
           webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
         });
         const id = view.id;
+        win.pindoWindowProfile = { role: `note-${view.type}`, transparent: !this.compatibilityMode, backgroundColor: this.compatibilityMode ? view.backgroundColor : '#00000000', host: view.mode === 'desktop' ? 'desktop-pending' : 'top-level' };
         win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
         win.webContents.on('will-navigate', (event, url) => {
           const expected = pathToFileURL(this.indexPath).href;

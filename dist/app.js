@@ -432,10 +432,8 @@
     const bookmarks = state.notes.filter(note => note.mode === "bookmark");
     const visibleLimit = Math.max(1, Math.floor((desktop.clientHeight - 56) / 120) - (bookmarks.length > 1 ? 1 : 0));
     state.notes.filter(note => note.mode !== "bookmark" && (!canvasWindow || note.mode === "desktop")).forEach(renderNote);
-    if (!canvasWindow) {
-      bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
-      if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
-    }
+    bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
+    if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
     if (!canvasWindow) renderAssistant();
     if (persist) save();
   }
@@ -2177,8 +2175,8 @@
   function showDesktopModeStatus(value = {}) {
     desktopModeEnabled = Boolean(value.enabled);
     desktopModeButton.textContent = desktopModeEnabled ? "切回原窗口模式" : "启用画布模式";
-    desktopModeStatus.textContent = value.compatibilityFallback
-      ? "兼容模式已自动使用原窗口，关闭兼容模式后才会恢复画布"
+    desktopModeStatus.textContent = value.compatibilityCanvas
+      ? "兼容模式正在使用稳定桌面画布，并已减少透明与复杂视觉效果"
       : value.effectiveEnabled === false && desktopModeEnabled
         ? "当前启动暂未启用画布"
         : desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
@@ -2356,30 +2354,46 @@
   }
 
   if (canvasWindow && window.pindoDesktop?.setCanvasRegions) {
-    let scheduled = 0, previous = "";
+    let scheduled = 0, acceptedRegions = "", publishInFlight = false, publishAgain = false, scheduledReason = "initial-render";
     let canvasGestureActive = false;
     const resetCanvasInteraction = reason => {
       if (canvasGestureActive) window.pindoDesktop.setCanvasGesture(false);
       canvasGestureActive = false;
       void window.pindoDesktop.endCanvasEdit?.(reason);
     };
-    const publish = () => {
+    const publish = async () => {
       scheduled = 0;
       const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
       const regions = [...document.querySelectorAll(selector)].filter(el => el.getClientRects().length).map(el => {
         const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
       });
       const serialized = JSON.stringify(regions);
-      if (serialized !== previous) { previous = serialized; window.pindoDesktop.setCanvasRegions(regions); }
+      if (serialized === acceptedRegions) return;
+      if (publishInFlight) { publishAgain = true; return; }
+      publishInFlight = true;
+      const reason = scheduledReason;
+      scheduledReason = "layout-change";
+      try {
+        const result = await window.pindoDesktop.setCanvasRegions({ regions, computedAt: Date.now(), reason, serializedLength: serialized.length });
+        if (result?.accepted) acceptedRegions = serialized;
+      } catch {
+        acceptedRegions = "";
+      } finally {
+        publishInFlight = false;
+        if (publishAgain) { publishAgain = false; schedule("coalesced-update"); }
+      }
     };
-    const schedule = () => { if (!scheduled) scheduled = requestAnimationFrame(publish); };
-    new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
-    window.addEventListener('resize', schedule);
-    window.pindoDesktop.onCanvasRefresh(schedule);
+    const schedule = (reason = "layout-change") => {
+      scheduledReason = reason;
+      if (!scheduled) scheduled = requestAnimationFrame(publish);
+    };
+    new MutationObserver(() => schedule("dom-mutation")).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    window.addEventListener('resize', () => schedule("window-resize"));
+    window.pindoDesktop.onCanvasRefresh(() => { acceptedRegions = ""; schedule("host-refresh"); });
     window.pindoDesktop.onCanvasGeometry?.(geometry => {
       if (Number.isFinite(geometry?.origin?.x)) canvasOriginX = geometry.origin.x;
       if (Number.isFinite(geometry?.origin?.y)) canvasOriginY = geometry.origin.y;
-      render(); schedule();
+      render(); acceptedRegions = ""; schedule("geometry-change");
     });
     document.addEventListener('pointerdown', event => {
       const editable = event.target.closest('[contenteditable="true"], input:not([readonly]), textarea');
@@ -2395,7 +2409,7 @@
     window.addEventListener('blur', () => resetCanvasInteraction('renderer-blur'));
     window.addEventListener('pagehide', () => resetCanvasInteraction('pagehide'));
     document.addEventListener('visibilitychange', () => { if (document.hidden) resetCanvasInteraction('visibilitychange'); });
-    schedule();
+    schedule("initial-render");
   }
 
   render();

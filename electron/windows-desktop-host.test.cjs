@@ -28,3 +28,11 @@ test('reports Explorer or policy failures explicitly instead of silently claimin
   assert.equal(result.attached, false);
   assert.match(result.reason, /Explorer desktop/);
 });
+
+test('reports a valid existing Explorer parent without claiming a reattach', async () => {
+  const buffer = Buffer.alloc(8); buffer.writeBigUInt64LE(42n);
+  const result = await attachToWindowsDesktop({ isDestroyed: () => false, getNativeWindowHandle: () => buffer }, {
+    platform: 'win32', run: async () => ({ stdout: 'desktop-attached;parent-valid=true;reattached=false;layer=desktop\n' })
+  });
+  assert.deepEqual({ attached: result.attached, parentValid: result.parentValid, reattached: result.reattached, layer: result.layer }, { attached: true, parentValid: true, reattached: false, layer: 'desktop' });
+});

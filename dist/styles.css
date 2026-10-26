@@ -55,7 +55,6 @@ body.canvas-window-mode .desktop { width: 100%; height: 100%; }
 body.canvas-window-mode .desktop::after,
 body.canvas-window-mode .app-bar,
 body.canvas-window-mode .assistant,
-body.canvas-window-mode .bookmark-dock,
 body.canvas-window-mode .desktop-hint,
 body.canvas-window-mode .left-dock-target { display: none !important; }
 button, input, textarea, select { font: inherit; }
