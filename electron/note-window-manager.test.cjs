@@ -7,6 +7,7 @@ const note = (overrides = {}) => ({ id: 'note-1', type: 'quick', mode: 'desktop'
 
 test('chooses the display by overlap and keeps a note visible after monitor changes', () => {
   assert.deepEqual(nativeNoteView(note(), displays).bounds, { x: -400, y: 12, width: 400, height: 360 });
+  assert.equal(nativeNoteView(note(), displays).backgroundColor, '#fff0dc');
   assert.deepEqual(nativeNoteView(note({ x: -4000 }), displays).bounds.x, -1920);
   assert.equal(nativeNoteView(note({ x: 9999, y: 9999 }), displays).bounds.x, 2160);
 });
@@ -99,6 +100,18 @@ test('attaches desktop notes before showing them and keeps top notes out of Expl
   assert.deepEqual(attached, [created[0]]);
   assert.equal(created[0].shown, true);
   assert.equal(created[1].top, true);
+});
+
+test('compatibility native top notes use an opaque matching surface', () => {
+  const created = [];
+  class FakeWindow {
+    constructor(options) { this.options = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
+    on() {} loadFile() {} isDestroyed() { return false; } setAlwaysOnTop() {} showInactive() {}
+  }
+  const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', compatibilityMode: true });
+  manager.sync([note({ mode: 'top', color: '#dfe8ff' })]);
+  assert.equal(created[0].options.transparent, false);
+  assert.equal(created[0].options.backgroundColor, '#dfe8ff');
 });
 
 test('native bounds updates are clamped to the active display and reject malformed values', () => {

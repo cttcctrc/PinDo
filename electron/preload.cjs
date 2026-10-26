@@ -2,7 +2,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('pindoDesktop', Object.freeze({
   setControlRegions: regions => ipcRenderer.send('pindo:control-regions', regions),
-  setCanvasRegions: regions => ipcRenderer.send('pindo:canvas-regions', regions),
+  setCanvasRegions: payload => ipcRenderer.invoke('pindo:canvas-regions', {
+    ...(Array.isArray(payload) ? { regions: payload } : payload),
+    sentAt: Date.now()
+  }),
   setCanvasGesture: active => ipcRenderer.send('pindo:canvas-gesture', Boolean(active)),
   focusCanvasEditor: () => ipcRenderer.invoke('pindo:canvas-focus-edit'),
   endCanvasEdit: reason => ipcRenderer.invoke('pindo:canvas-end-edit', String(reason || 'renderer')),

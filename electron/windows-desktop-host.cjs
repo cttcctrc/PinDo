@@ -16,7 +16,14 @@ async function attachToWindowsDesktop(window, options = {}) {
   const helper = require('./native-paths.cjs').nativeScript('windows-desktop-host.ps1');
   try {
     const { stdout } = await (options.run || run)(powershell, ['-NoProfile', '-NonInteractive', '-File', helper, value.toString(), options.promote ? 'top' : 'desktop'], { timeout: 6000, windowsHide: true });
-    return { attached: stdout.includes('desktop-attached'), reason: stdout.includes('desktop-attached') ? null : 'Desktop host did not confirm attachment' };
+    const attached = stdout.includes('desktop-attached');
+    return {
+      attached,
+      reason: attached ? null : 'Desktop host did not confirm attachment',
+      parentValid: attached ? /parent-valid=true/.test(stdout) : false,
+      reattached: attached ? /reattached=true/.test(stdout) : false,
+      layer: /layer=top/.test(stdout) ? 'top' : /layer=desktop/.test(stdout) ? 'desktop' : null
+    };
   } catch (error) {
     return { attached: false, reason: String(error.stderr || error.message || error).slice(0, 400) };
   }

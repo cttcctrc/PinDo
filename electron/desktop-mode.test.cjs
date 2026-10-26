@@ -14,8 +14,10 @@ test('canvas default can be rolled back and the saved choice wins after updates'
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-test('compatibility mode always falls back to clickable native note windows', () => {
+test('normal and compatibility modes share the desktop canvas authority on Windows', () => {
   assert.equal(shouldUseDesktopCanvas({ enabled: true, compatibilityEnabled: false, platform: 'win32' }), true);
-  assert.equal(shouldUseDesktopCanvas({ enabled: true, compatibilityEnabled: true, platform: 'win32' }), false);
+  assert.equal(shouldUseDesktopCanvas({ enabled: true, compatibilityEnabled: true, platform: 'win32' }), true);
+  assert.equal(shouldUseDesktopCanvas({ enabled: false, compatibilityEnabled: true, platform: 'win32' }), true);
   assert.equal(shouldUseDesktopCanvas({ enabled: false, compatibilityEnabled: false, platform: 'win32' }), false);
+  assert.equal(shouldUseDesktopCanvas({ enabled: true, compatibilityEnabled: true, platform: 'linux' }), false);
 });

@@ -4,8 +4,8 @@ const { virtualDesktopBounds } = require('./canvas-geometry.cjs');
 
 /** Owns the single, desktop-hosted surface. Never owns or serializes note data. */
 class DesktopCanvasManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop, diagnostic = null, onDiagnostic = () => {} }) {
-    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onError, desktopHost, diagnostic, onDiagnostic });
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop, diagnostic = null, onDiagnostic = () => {}, compatibilityMode = false }) {
+    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onError, desktopHost, diagnostic, onDiagnostic, compatibilityMode });
     this.window = null;
     this.hitTest = null;
     this.timer = null;
@@ -17,7 +17,16 @@ class DesktopCanvasManager {
     this.regionLastUpdatedAt = null;
     this.regionLastNonEmptyAt = null;
     this.rendererReadyAt = null;
+    this.regionLastComputedAt = null;
+    this.regionLastSentAt = null;
+    this.regionLastReceivedAt = null;
+    this.lastRegionError = null;
     this.recovering = null;
+    this.recoveryQueued = null;
+    this.recoveryRequestCount = 0;
+    this.recoveryRunCount = 0;
+    this.recoveryReattachCount = 0;
+    this.recoveryLastDurationMs = null;
     this.lifecycleReady = false;
     this.closing = false;
   }
@@ -52,7 +61,7 @@ class DesktopCanvasManager {
       if (unexpected) { this.fallbackReason = 'Canvas window closed after Explorer lifecycle change'; this.onError(new Error(this.fallbackReason)); }
     });
     try {
-      await window.loadFile(this.indexPath, { query: { canvasWindow: '1', canvasOriginX: String(canvasBounds.x), canvasOriginY: String(canvasBounds.y) } });
+      await window.loadFile(this.indexPath, { query: { canvasWindow: '1', canvasOriginX: String(canvasBounds.x), canvasOriginY: String(canvasBounds.y), compatibility: this.compatibilityMode ? '1' : '0' } });
       const result = await this.desktopHost(window);
       if (window.isDestroyed()) return;
       if (!result.attached) throw new Error(result.reason || 'Explorer did not accept the canvas');
@@ -84,9 +93,16 @@ class DesktopCanvasManager {
       if (message === 0x0018 && Buffer.isBuffer(wParam) && wParam.length >= 4 && wParam.readUInt32LE(0) === 0) {
         this.resetInteraction('desktop-hidden'); return;
       }
-      void this.recoverDesktopHost(reason);
+      void this.queueDesktopRecovery(reason);
     });
-    window.on?.('restore', () => { if (this.lifecycleReady) void this.recoverDesktopHost('window-restore'); });
+    window.on?.('restore', () => { if (this.lifecycleReady) void this.queueDesktopRecovery('window-restore'); });
+  }
+
+  queueDesktopRecovery(reason = 'desktop-lifecycle') {
+    this.recoveryRequestCount += 1;
+    if (this.recoveryQueued) return this.recoveryQueued;
+    this.recoveryQueued = Promise.resolve().then(() => this.recoverDesktopHost(reason)).finally(() => { this.recoveryQueued = null; });
+    return this.recoveryQueued;
   }
 
   async recoverDesktopHost(reason = 'desktop-lifecycle') {
@@ -94,49 +110,67 @@ class DesktopCanvasManager {
     if (this.recovering) return this.recovering;
     const window = this.window;
     this.recovering = (async () => {
+      const startedAt = Date.now();
+      this.recoveryRunCount += 1;
       this.resetInteraction(reason);
       const result = await this.desktopHost(window);
       if (this.window !== window || window.isDestroyed()) return false;
       if (!result?.attached) { this.fail(new Error(result?.reason || `Explorer host recovery failed: ${reason}`)); return false; }
       window.pindoWindowProfile.host = 'explorer-desktop';
       window.pindoWindowProfile.hostReason = reason;
+      window.pindoWindowProfile.parentValid = result.parentValid ?? null;
+      if (result.reattached) this.recoveryReattachCount += 1;
+      this.recoveryLastDurationMs = Date.now() - startedAt;
       window.webContents.invalidate?.();
       window.webContents.send('pindo:canvas-refresh-regions');
-      this.onDiagnostic('canvas-host-recovered', { windowId: window.id, reason, at: Date.now() });
+      this.onDiagnostic('canvas-host-recovered', { windowId: window.id, reason, parentValid: result.parentValid ?? null, reattached: Boolean(result.reattached), durationMs: this.recoveryLastDurationMs, at: Date.now() });
       return true;
     })().finally(() => { this.recovering = null; });
     return this.recovering;
   }
 
-  regions(rectangles) {
+  regions(rectangles, metadata = {}) {
     if (!this.active || !this.hitTest) return false;
-    const accepted = this.hitTest.update(rectangles);
     const now = Date.now();
+    this.regionLastComputedAt = Number.isFinite(metadata?.computedAt) ? metadata.computedAt : null;
+    this.regionLastSentAt = Number.isFinite(metadata?.sentAt) ? metadata.sentAt : null;
+    this.regionLastReceivedAt = now;
+    this.onDiagnostic('canvas-regions-computed', { windowId: this.window?.id, count: Array.isArray(rectangles) ? rectangles.length : null, at: this.regionLastComputedAt, reason: metadata?.reason || 'renderer' });
+    this.onDiagnostic('canvas-regions-sent', { windowId: this.window?.id, count: Array.isArray(rectangles) ? rectangles.length : null, at: this.regionLastSentAt, serializedLength: Number(metadata?.serializedLength) || null });
+    const accepted = this.hitTest.update(rectangles);
     if (accepted) {
+      this.lastRegionError = null;
       this.regionUpdateCount += 1;
       this.regionLastUpdatedAt = now;
       if (rectangles.length) this.regionLastNonEmptyAt = now;
-      this.onDiagnostic('canvas-regions-updated', { windowId: this.window?.id, count: rectangles.length, updateCount: this.regionUpdateCount, at: now });
+      this.onDiagnostic('canvas-regions-received', { windowId: this.window?.id, count: rectangles.length, updateCount: this.regionUpdateCount, ignored: this.hitTest.state.ignored, dragging: this.hitTest.state.dragging, editing: this.editing, at: now });
     } else {
+      this.lastRegionError = 'invalid-regions';
       this.regionRejectedCount += 1;
-      this.onDiagnostic('canvas-regions-rejected', { windowId: this.window?.id, rejectedCount: this.regionRejectedCount, at: now });
+      this.onDiagnostic('canvas-regions-rejected', { windowId: this.window?.id, reason: this.lastRegionError, rejectedCount: this.regionRejectedCount, at: now });
     }
     return accepted;
   }
-  gesture(dragging) { if (this.active) this.hitTest?.setDragging(dragging); }
+  gesture(dragging) {
+    if (!this.active) return;
+    this.hitTest?.setDragging(dragging);
+    this.onDiagnostic('canvas-pointer-mode-changed', { windowId: this.window?.id, dragging: Boolean(dragging), ignored: this.hitTest?.state.ignored, reason: 'gesture', at: Date.now() });
+  }
   focusEdit() {
     if (!this.active || !this.window?.isVisible()) return false;
     this.window.setFocusable(true);
     this.window.focus();
     this.editing = true;
     this.hitTest?.setDragging(true);
+    this.onDiagnostic('canvas-edit-started', { windowId: this.window?.id, ignored: this.hitTest?.state.ignored, at: Date.now() });
     return true;
   }
-  endEdit(_reason = 'renderer') {
+  endEdit(reason = 'renderer') {
     if (!this.window || this.window.isDestroyed()) return false;
     this.editing = false;
     this.hitTest?.setDragging(false);
     this.window.setFocusable(false);
+    this.onDiagnostic('canvas-edit-ended', { windowId: this.window?.id, ignored: this.hitTest?.state.ignored, reason, at: Date.now() });
     return true;
   }
   resetInteraction(reason = 'reset') {
@@ -167,7 +201,7 @@ class DesktopCanvasManager {
     if (failedWindow && !failedWindow.isDestroyed()) failedWindow.destroy();
   }
   interactionState() {
-    return { active: this.active, editing: this.editing, dragging: Boolean(this.hitTest?.state.dragging), ignored: this.hitTest?.state.ignored, regionCount: this.hitTest?.state.regionCount || 0, regionUpdateCount: this.regionUpdateCount, regionRejectedCount: this.regionRejectedCount, regionLastUpdatedAt: this.regionLastUpdatedAt, regionLastNonEmptyAt: this.regionLastNonEmptyAt, rendererReadyAt: this.rendererReadyAt, windowVisible: Boolean(this.window?.isVisible?.()), fallbackReason: this.fallbackReason };
+    return { active: this.active, editing: this.editing, dragging: Boolean(this.hitTest?.state.dragging), ignored: this.hitTest?.state.ignored, regionCount: this.hitTest?.state.regionCount || 0, regionUpdateCount: this.regionUpdateCount, regionRejectedCount: this.regionRejectedCount, regionLastUpdatedAt: this.regionLastUpdatedAt, regionLastNonEmptyAt: this.regionLastNonEmptyAt, regionLastComputedAt: this.regionLastComputedAt, regionLastSentAt: this.regionLastSentAt, regionLastReceivedAt: this.regionLastReceivedAt, lastRegionError: this.lastRegionError, rendererReadyAt: this.rendererReadyAt, windowVisible: Boolean(this.window?.isVisible?.()), recoveryRequestCount: this.recoveryRequestCount, recoveryRunCount: this.recoveryRunCount, recoveryReattachCount: this.recoveryReattachCount, recoveryLastDurationMs: this.recoveryLastDurationMs, fallbackReason: this.fallbackReason };
   }
   close() {
     this.active = false;

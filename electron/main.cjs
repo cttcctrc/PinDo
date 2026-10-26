@@ -22,6 +22,7 @@ const { runSmokeValidation } = require('./smoke-validation.cjs');
 const { MODE_LABELS, resolveCf07Diagnostics, relaunchArgs } = require('./cf07-diagnostics.cjs');
 const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
 const { createDodoPhysicsHandler } = require('./dodo-physics.cjs');
+const { trustedFileSender } = require('./ipc-trust.cjs');
 
 const packageMetadata = require('../package.json');
 const canvasCandidate = packageMetadata.canvasCandidate === true;
@@ -96,11 +97,11 @@ function flushState() {
 }
 
 function trustedSender(event) {
-  return event.sender === mainWindow?.webContents && event.senderFrame?.url?.split('?')[0] === indexUrl;
+  return trustedFileSender(event, mainWindow?.webContents, indexPath);
 }
 
 function trustedCanvasSender(event) {
-  return event.sender === desktopCanvas?.window?.webContents && event.senderFrame?.url?.split('?')[0] === indexUrl;
+  return trustedFileSender(event, desktopCanvas?.window?.webContents, indexPath);
 }
 
 function readStateFile() {
@@ -406,13 +407,13 @@ else {
       if (action === 'reset-windows') return resetWindowPositions();
       if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility };
       if (action === 'compatibility-set') return { accepted: true, ...diagnostics.setCompatibility(Boolean(value?.enabled)), restartRequired: true };
-      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: Boolean(desktopMode.enabled && compatibilityState.enabled) };
+      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: false, compatibilityCanvas: Boolean(compatibilityState.enabled) };
       if (action === 'desktop-mode-set') {
         const enabled = Boolean(value?.enabled);
         if (enabled) backupBeforeCanvasMigration(true);
         Object.assign(desktopMode, writeDesktopMode(app, enabled));
         diagnostics.record('desktop-mode-changed', { enabled });
-        return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: Boolean(desktopMode.enabled && compatibilityState.enabled), restartRequired: true };
+        return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: false, compatibilityCanvas: Boolean(compatibilityState.enabled), restartRequired: true };
       }
       return { accepted: false, error: 'unsupported-action' };
     });
@@ -461,11 +462,20 @@ else {
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
     if (shouldUseDesktopCanvas({ enabled: desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1', compatibilityEnabled: compatibilityState.enabled })) {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
+        compatibilityMode: compatibilityState.enabled,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
         onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); },
         onDiagnostic: (event,detail) => diagnostics.record(event,detail)
       });
-      ipcMain.on('pindo:canvas-regions', (event, rectangles) => { if (trustedCanvasSender(event)) desktopCanvas.regions(rectangles); });
+      ipcMain.handle('pindo:canvas-regions', (event, payload) => {
+        if (!trustedCanvasSender(event)) {
+          diagnostics.record('canvas-regions-rejected', { reason: 'unauthorized', regionCount: Array.isArray(payload?.regions) ? payload.regions.length : null });
+          return { accepted: false, reason: 'unauthorized' };
+        }
+        const rectangles = Array.isArray(payload) ? payload : payload?.regions;
+        const accepted = desktopCanvas.regions(rectangles, Array.isArray(payload) ? {} : payload);
+        return { accepted, reason: accepted ? null : 'invalid-regions', regionCount: accepted ? rectangles.length : desktopCanvas.interactionState().regionCount };
+      });
       ipcMain.on('pindo:canvas-gesture', (event, active) => { if (trustedCanvasSender(event)) desktopCanvas.gesture(Boolean(active)); });
       ipcMain.handle('pindo:canvas-focus-edit', event => trustedCanvasSender(event) && desktopCanvas.focusEdit());
       ipcMain.handle('pindo:canvas-end-edit', (event, reason) => trustedCanvasSender(event) && desktopCanvas.endEdit(reason));
