@@ -1,7 +1,5 @@
-function shouldUseDesktopCanvas({ platform = process.platform } = {}) {
-  // PinDo has one desktop rendering authority. Compatibility is an internal
-  // effects profile and must never select a second window architecture.
-  return platform === 'win32';
+// Restore rc.57's desktop routing while keeping one user-facing workflow.
+function shouldUseDesktopCanvas({ platform = process.platform, compatibilityEnabled = false } = {}) {
+  return platform === 'win32' && !compatibilityEnabled;
 }
-
 module.exports = { shouldUseDesktopCanvas };

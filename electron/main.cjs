@@ -36,7 +36,7 @@ if (canvasCandidate) {
   app.setPath('userData', candidateData);
 }
 const compatibilityState = prepareCompatibility(app);
-const desktopMode = { enabled: true, effectiveEnabled: process.platform === 'win32', source: 'unified-canvas' };
+const desktopMode = { enabled: true, effectiveEnabled: process.platform === 'win32', source: 'managed-desktop' };
 
 let mainWindow;
 let tray;
@@ -407,9 +407,9 @@ else {
       if (action === 'reset-windows') return resetWindowPositions();
       if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility, managedAutomatically: true };
       if (action === 'compatibility-set') return { accepted: false, error: '渲染策略现在由 PinDo 自动管理' };
-      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas(), unifiedCanvas: true };
+      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ compatibilityEnabled: compatibilityState.enabled }), managedAutomatically: true };
       if (action === 'desktop-mode-set') {
-        return { accepted: false, error: 'PinDo 现在统一使用桌面画布' };
+        return { accepted: false, error: '桌面渲染策略由 PinDo 自动管理' };
       }
       return { accepted: false, error: 'unsupported-action' };
     });
@@ -456,7 +456,7 @@ else {
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
-    if (shouldUseDesktopCanvas()) {
+    if (shouldUseDesktopCanvas({ compatibilityEnabled: compatibilityState.enabled })) {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
         compatibilityMode: compatibilityState.enabled,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
