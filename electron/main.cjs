@@ -460,6 +460,7 @@ else {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
         compatibilityMode: compatibilityState.enabled,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },
+        onRecovered: () => nativeFeatures?.restoreDesktopSurfaces?.(),
         onError: error => { noteWindowManager.canvasMode = false; console.error('PinDo canvas attach failed:', error); diagnostics.record('desktop-canvas-failed', { reason: String(error) }); broadcastState(); },
         onDiagnostic: (event,detail) => diagnostics.record(event,detail)
       });

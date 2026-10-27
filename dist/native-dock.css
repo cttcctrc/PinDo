@@ -37,3 +37,9 @@ html,body,button{font-family:var(--ui-latin-font,Nunito),var(--ui-local-font,'Mi
 #tabs > .tab-sort-placeholder{margin-top:calc(-10px * var(--scale));pointer-events:none}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Transparent desktop windows on Windows 10 LTSC must not create a new
+   compositor layer on hover. Keep the native Dock paint and geometry stable. */
+*,*::before,*::after{animation:none!important;transition:none!important}
+.tab,.tab:hover,.tab:active,.tab.is-sorting,#tabs>.tab:hover,#preview,#preview.show{transform:none!important}
+#tabs>.tab:hover{box-shadow:0 3px 10px #0002}

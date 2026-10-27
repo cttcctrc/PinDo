@@ -4,8 +4,8 @@ const { virtualDesktopBounds } = require('./canvas-geometry.cjs');
 
 /** Owns the single, desktop-hosted surface. Never owns or serializes note data. */
 class DesktopCanvasManager {
-  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop, diagnostic = null, onDiagnostic = () => {}, compatibilityMode = false }) {
-    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onError, desktopHost, diagnostic, onDiagnostic, compatibilityMode });
+  constructor({ BrowserWindow, screen, indexPath, preloadPath, onReady = () => {}, onRecovered = () => {}, onError = () => {}, desktopHost = attachToWindowsDesktop, diagnostic = null, onDiagnostic = () => {}, compatibilityMode = false }) {
+    Object.assign(this, { BrowserWindow, screen, indexPath, preloadPath, onReady, onRecovered, onError, desktopHost, diagnostic, onDiagnostic, compatibilityMode });
     this.window = null;
     this.hitTest = null;
     this.timer = null;
@@ -28,6 +28,7 @@ class DesktopCanvasManager {
     this.recoveryReattachCount = 0;
     this.recoveryLastDurationMs = null;
     this.lifecycleReady = false;
+    this.showDesktopRecoveryTimer = null;
     this.closing = false;
   }
 
@@ -91,7 +92,10 @@ class DesktopCanvasManager {
     for (const [message, reason] of messages) window.hookWindowMessage(message, wParam => {
       if (!this.lifecycleReady || !this.active || this.closing) return;
       if (message === 0x0018 && Buffer.isBuffer(wParam) && wParam.length >= 4 && wParam.readUInt32LE(0) === 0) {
-        this.resetInteraction('desktop-hidden'); return;
+        this.resetInteraction('desktop-hidden');
+        clearTimeout(this.showDesktopRecoveryTimer);
+        this.showDesktopRecoveryTimer=setTimeout(()=>{if(this.active&&!this.closing)void this.queueDesktopRecovery('show-desktop-hidden');},250);
+        this.showDesktopRecoveryTimer.unref?.();return;
       }
       void this.queueDesktopRecovery(reason);
     });
@@ -125,6 +129,8 @@ class DesktopCanvasManager {
         window.webContents.invalidate?.();
         window.webContents.send('pindo:canvas-refresh-regions');
       }
+      if (this.diagnostic?.canvasVisible !== false && !window.isVisible()) window.showInactive();
+      this.onRecovered({reason,parentValid:result.parentValid??null,reattached:Boolean(result.reattached)});
       this.onDiagnostic('canvas-host-recovered', { windowId: window.id, reason, parentValid: result.parentValid ?? null, reattached: Boolean(result.reattached), durationMs: this.recoveryLastDurationMs, at: Date.now() });
       return true;
     })().finally(() => { this.recovering = null; });
@@ -194,6 +200,7 @@ class DesktopCanvasManager {
     this.fallbackReason = String(error?.message || error || 'canvas-failure');
     this.active = false;
     clearInterval(this.timer);
+    clearTimeout(this.showDesktopRecoveryTimer);
     this.timer = null;
     this.resetInteraction('fallback');
     const failedWindow = this.window;
@@ -209,6 +216,7 @@ class DesktopCanvasManager {
     this.active = false;
     this.closing = true;
     clearInterval(this.timer);
+    clearTimeout(this.showDesktopRecoveryTimer);
     this.timer = null;
     this.resetInteraction('close');
     this.hitTest?.clear();

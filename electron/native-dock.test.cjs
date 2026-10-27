@@ -84,6 +84,14 @@ test('visible dock bounds shrink to its native bookmark stack', () => {
   instances[0].events.get('closed')();
 });
 
+test('hover does not change native z-order on transparent desktop surfaces', () => {
+  const { dock, calls, instances } = fixture(MODES.baseline);
+  dock.sync([{ id: 'a', mode: 'bookmark', title: 'A', type: 'quick' }]);
+  dock.setHovered(true);dock.setHovered(false);
+  assert.equal(calls.some(call => call[0] === 'top' || call[0] === 'moveTop'), false);
+  instances[0].events.get('closed')();
+});
+
 test('separate preview probes use the requested top-level transparency', () => {
   const { dock, instances } = fixture(MODES['preview-opaque-top']);
   assert.equal(instances.length, 2);
