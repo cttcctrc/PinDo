@@ -75,13 +75,13 @@ class NoteWindowManager {
       if (!win || win.isDestroyed()) {
         win = new this.BrowserWindow({
           ...view.bounds, minWidth: 280, minHeight: 210,
-          frame: false, transparent: !this.compatibilityMode, show: false, skipTaskbar: true,
+          frame: false, transparent: true, show: false, skipTaskbar: true,
           resizable: false,
-          backgroundColor: this.compatibilityMode ? view.backgroundColor : '#00000000', hasShadow: false,
+          backgroundColor: '#00000000', hasShadow: false,
           webPreferences: { preload: this.preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false }
         });
         const id = view.id;
-        win.pindoWindowProfile = { role: `note-${view.type}`, transparent: !this.compatibilityMode, backgroundColor: this.compatibilityMode ? view.backgroundColor : '#00000000', host: view.mode === 'desktop' ? 'desktop-pending' : 'top-level' };
+        win.pindoWindowProfile = { role: `note-${view.type}`, transparent: true, backgroundColor: '#00000000', host: view.mode === 'desktop' ? 'desktop-pending' : 'top-level' };
         win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
         win.webContents.on('will-navigate', (event, url) => {
           const expected = pathToFileURL(this.indexPath).href;

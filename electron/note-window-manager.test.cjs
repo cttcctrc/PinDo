@@ -102,7 +102,7 @@ test('attaches desktop notes before showing them and keeps top notes out of Expl
   assert.equal(created[1].top, true);
 });
 
-test('compatibility native top notes use an opaque matching surface', () => {
+test('compatibility notes keep transparent native backgrounds outside their cards', () => {
   const created = [];
   class FakeWindow {
     constructor(options) { this.options = options; this.webContents = { setWindowOpenHandler() {}, on() {}, once() {} }; created.push(this); }
@@ -110,8 +110,8 @@ test('compatibility native top notes use an opaque matching surface', () => {
   }
   const manager = new NoteWindowManager({ BrowserWindow: FakeWindow, screen: { getAllDisplays: () => displays }, indexPath: '/tmp/index.html', preloadPath: '/tmp/preload.cjs', compatibilityMode: true });
   manager.sync([note({ mode: 'top', color: '#dfe8ff' })]);
-  assert.equal(created[0].options.transparent, false);
-  assert.equal(created[0].options.backgroundColor, '#dfe8ff');
+  assert.equal(created[0].options.transparent, true);
+  assert.equal(created[0].options.backgroundColor, '#00000000');
 });
 
 test('native bounds updates are clamped to the active display and reject malformed values', () => {
