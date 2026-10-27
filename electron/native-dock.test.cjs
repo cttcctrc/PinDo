@@ -74,6 +74,16 @@ test('dock-hidden keeps the right-side BrowserWindow unavailable without changin
   instances[0].events.get('closed')();
 });
 
+test('visible dock bounds shrink to its native bookmark stack', () => {
+  const { dock, calls, instances } = fixture(MODES.baseline);
+  dock.sync(Array.from({ length: 6 }, (_, index) => ({ id: String(index), mode: 'bookmark', title: String(index), type: 'quick' })));
+  const bounds = calls.filter(call => call[0] === 'bounds' && call[1] === instances[0].id).at(-1)[2];
+  assert.equal(bounds.width, 430);
+  assert.equal(bounds.height < 1080, true);
+  assert.equal(bounds.height, 359);
+  instances[0].events.get('closed')();
+});
+
 test('separate preview probes use the requested top-level transparency', () => {
   const { dock, instances } = fixture(MODES['preview-opaque-top']);
   assert.equal(instances.length, 2);

@@ -30,8 +30,25 @@ test('canvas regions use acknowledged IPC and retry rejected publications', () =
   assert.match(app, /catch \{\s*acceptedRegions = "";/);
 });
 
-test('desktop canvas renders bookmark tabs and includes them in native hit regions', () => {
+test('desktop canvas leaves bookmark tabs to the native dock', () => {
   const app = read('dist/app.js');
-  assert.match(app, /bookmarks\.slice\(0, visibleLimit\)\.forEach\(renderBookmark\)/);
-  assert.match(app, /\.note, \.bookmark, \.bookmark-overflow/);
+  const styles = read('dist/styles.css');
+  assert.match(app, /if \(!canvasWindow\) \{\s*bookmarks\.slice\(0, visibleLimit\)\.forEach\(renderBookmark\)/);
+  assert.doesNotMatch(app, /const selector = '[^']*\.bookmark/);
+  assert.match(styles, /body\.canvas-window-mode \.bookmark-dock/);
+});
+
+test('canvas hover paint is stable on legacy Windows compositors', () => {
+  const styles = read('dist/styles.css');
+  const hitTest = read('electron/canvas-hit-test.cjs');
+  assert.match(styles, /body\.canvas-window-mode \.note:hover/);
+  assert.match(styles, /body\.canvas-window-mode \.note-controls \{ opacity: 1 !important/);
+  assert.match(hitTest, /ignored === false \? 6 : 0/);
+});
+
+test('settings no longer exposes competing desktop rendering modes', () => {
+  const html = read('dist/index.html');
+  const app = read('dist/app.js');
+  assert.doesNotMatch(html, /compatibilityButton|desktopModeButton/);
+  assert.doesNotMatch(app, /showCompatibilityStatus|showDesktopModeStatus/);
 });

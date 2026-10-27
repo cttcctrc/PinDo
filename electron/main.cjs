@@ -17,7 +17,7 @@ const { parseState, createBackup, newestValidBackup, listBackups } = require('./
 const { CloudSyncManager, preserveDeviceLocalFields } = require('./cloud-sync.cjs');
 const { redundantConflictIds, moveRedundantConflictsToRecycleBin } = require('./cloud-duplicate-cleanup.cjs');
 const { Diagnostics, prepareCompatibility } = require('./diagnostics.cjs');
-const { readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas } = require('./desktop-mode.cjs');
+const { shouldUseDesktopCanvas } = require('./desktop-mode.cjs');
 const { runSmokeValidation } = require('./smoke-validation.cjs');
 const { MODE_LABELS, resolveCf07Diagnostics, relaunchArgs } = require('./cf07-diagnostics.cjs');
 const { detectNativeDockHost } = require('./native-dock-host-policy.cjs');
@@ -36,7 +36,7 @@ if (canvasCandidate) {
   app.setPath('userData', candidateData);
 }
 const compatibilityState = prepareCompatibility(app);
-const desktopMode = readDesktopMode(app, canvasCandidate || packageMetadata.canvasModeDefault === true);
+const desktopMode = { enabled: true, effectiveEnabled: process.platform === 'win32', source: 'unified-canvas' };
 
 let mainWindow;
 let tray;
@@ -339,7 +339,7 @@ else {
     smokeTrace('Electron ready');
     readStateFile();
     smokeTrace('local state read');
-    if (desktopMode.enabled) backupBeforeCanvasMigration();
+    backupBeforeCanvasMigration();
     if(process.platform==='win32' && app.isPackaged && !canvasCandidate){
       const flag=path.join(app.getPath('userData'),'login-default-v1');
       if(!fs.existsSync(flag)){try{app.setLoginItemSettings({openAtLogin:true,path:process.execPath});fs.mkdirSync(path.dirname(flag),{recursive:true});fs.writeFileSync(flag,'enabled');}catch(error){console.error('PinDo login startup:',error);}}
@@ -405,15 +405,11 @@ else {
       if (!trustedSender(event)) return { accepted: false, error: 'unauthorized' };
       if (action === 'diagnostics-export') return exportDiagnostics();
       if (action === 'reset-windows') return resetWindowPositions();
-      if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility };
-      if (action === 'compatibility-set') return { accepted: true, ...diagnostics.setCompatibility(Boolean(value?.enabled)), restartRequired: true };
-      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: false, compatibilityCanvas: Boolean(compatibilityState.enabled) };
+      if (action === 'compatibility-status') return { accepted: true, ...diagnostics.compatibility, managedAutomatically: true };
+      if (action === 'compatibility-set') return { accepted: false, error: '渲染策略现在由 PinDo 自动管理' };
+      if (action === 'desktop-mode-status') return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas(), unifiedCanvas: true };
       if (action === 'desktop-mode-set') {
-        const enabled = Boolean(value?.enabled);
-        if (enabled) backupBeforeCanvasMigration(true);
-        Object.assign(desktopMode, writeDesktopMode(app, enabled));
-        diagnostics.record('desktop-mode-changed', { enabled });
-        return { accepted: true, ...desktopMode, effectiveEnabled: shouldUseDesktopCanvas({ enabled: desktopMode.enabled, compatibilityEnabled: compatibilityState.enabled }), compatibilityFallback: false, compatibilityCanvas: Boolean(compatibilityState.enabled), restartRequired: true };
+        return { accepted: false, error: 'PinDo 现在统一使用桌面画布' };
       }
       return { accepted: false, error: 'unsupported-action' };
     });
@@ -460,7 +456,7 @@ else {
     smokeTrace('control window created');
     diagnostics.attachWindow(mainWindow, 'dodo-control');
     noteWindowManager = new NoteWindowManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), compatibilityMode: compatibilityState.enabled, onDesktopHostError: (id, reason) => { console.error(`PinDo note ${id} desktop host failed:`, reason); diagnostics.record('desktop-host-failed', { reason }); } });
-    if (shouldUseDesktopCanvas({ enabled: desktopMode.enabled || process.env.PINDO_CANVAS_EXPERIMENT === '1', compatibilityEnabled: compatibilityState.enabled })) {
+    if (shouldUseDesktopCanvas()) {
       desktopCanvas = new DesktopCanvasManager({ BrowserWindow, screen, indexPath, preloadPath: path.join(__dirname, 'preload.cjs'), diagnostic: cf07,
         compatibilityMode: compatibilityState.enabled,
         onReady: () => { noteWindowManager.canvasMode = true; broadcastState(); },

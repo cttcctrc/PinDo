@@ -1,28 +1,7 @@
-const fs = require('node:fs');
-const path = require('node:path');
-
-function desktopModePath(app) { return path.join(app.getPath('userData'), 'desktop-mode.json'); }
-
-function readDesktopMode(app, defaultEnabled = false) {
-  try {
-    const saved = JSON.parse(fs.readFileSync(desktopModePath(app), 'utf8'));
-    if (typeof saved.enabled === 'boolean') return { ...saved, enabled: saved.enabled, source: 'saved' };
-  } catch {}
-  return { enabled: Boolean(defaultEnabled), source: 'default' };
+function shouldUseDesktopCanvas({ platform = process.platform } = {}) {
+  // PinDo has one desktop rendering authority. Compatibility is an internal
+  // effects profile and must never select a second window architecture.
+  return platform === 'win32';
 }
 
-function writeDesktopMode(app, enabled) {
-  const next = { enabled: Boolean(enabled), source: 'saved', updatedAt: Date.now() };
-  fs.mkdirSync(app.getPath('userData'), { recursive: true });
-  fs.writeFileSync(desktopModePath(app), JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });
-  return next;
-}
-
-function shouldUseDesktopCanvas({ enabled, compatibilityEnabled, platform = process.platform }) {
-  // Compatibility reduces visual effects, but keeps the single Explorer-hosted
-  // canvas. The former multiple transparent-window fallback produces black
-  // rectangles on LTSC systems without DirectComposition.
-  return platform === 'win32' && Boolean(enabled || compatibilityEnabled);
-}
-
-module.exports = { desktopModePath, readDesktopMode, writeDesktopMode, shouldUseDesktopCanvas };
+module.exports = { shouldUseDesktopCanvas };

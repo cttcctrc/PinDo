@@ -432,8 +432,10 @@
     const bookmarks = state.notes.filter(note => note.mode === "bookmark");
     const visibleLimit = Math.max(1, Math.floor((desktop.clientHeight - 56) / 120) - (bookmarks.length > 1 ? 1 : 0));
     state.notes.filter(note => note.mode !== "bookmark" && (!canvasWindow || note.mode === "desktop")).forEach(renderNote);
-    bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
-    if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
+    if (!canvasWindow) {
+      bookmarks.slice(0, visibleLimit).forEach(renderBookmark);
+      if (bookmarks.length > visibleLimit) renderBookmarkOverflow(bookmarks.slice(visibleLimit));
+    }
     if (!canvasWindow) renderAssistant();
     if (persist) save();
   }
@@ -2144,13 +2146,6 @@
     await runDataAction("import", event.currentTarget);
   });
   const diagnosticStatus = document.querySelector("#diagnosticSettingsStatus");
-  const compatibilityButton = document.querySelector("#compatibilityButton");
-  let compatibilityEnabled = false;
-  function showCompatibilityStatus(value = {}) {
-    compatibilityEnabled = Boolean(value.enabled);
-    compatibilityButton.textContent = compatibilityEnabled ? "关闭兼容模式" : "开启兼容模式";
-    diagnosticStatus.textContent = value.autoEnabled ? "检测到连续异常退出，已自动切换轻量视觉；重启后生效" : compatibilityEnabled ? "轻量兼容模式已开启：保留窗口渲染，仅减少透明与复杂动效" : "标准视觉模式";
-  }
   async function runDiagnosticAction(action, value, button) {
     if (!window.pindoDesktop?.dataAction) { showNearTip(button, "此功能仅支持 Windows 安装版"); return; }
     document.querySelectorAll(".diagnostic-actions button").forEach(item => item.disabled = true);
@@ -2161,37 +2156,12 @@
       if (!result?.accepted) { diagnosticStatus.textContent = result?.error || "操作失败，请稍后重试"; return; }
       if (action === "reset-windows") { diagnosticStatus.textContent = `已恢复 ${result.notes} 个便签的位置`; showToast("窗口位置已恢复"); }
       else if (action === "diagnostics-export") { diagnosticStatus.textContent = "诊断报告已导出，不包含便签正文和账号信息"; showToast("诊断报告已导出"); }
-      else { showCompatibilityStatus(result); diagnosticStatus.textContent += "；请重启 PinDo"; }
+      else { diagnosticStatus.textContent = "操作完成"; }
     } catch { diagnosticStatus.textContent = "操作失败，请稍后重试"; }
     finally { document.querySelectorAll(".diagnostic-actions button").forEach(item => item.disabled = false); }
   }
   document.querySelector("#resetWindowsButton")?.addEventListener("click", event => { if (confirm("将所有展开的便签移回主屏幕，并保留便签内容和尺寸。是否继续？")) runDiagnosticAction("reset-windows", null, event.currentTarget); });
   document.querySelector("#exportDiagnosticsButton")?.addEventListener("click", event => runDiagnosticAction("diagnostics-export", null, event.currentTarget));
-  compatibilityButton?.addEventListener("click", event => runDiagnosticAction("compatibility-set", { enabled: !compatibilityEnabled }, event.currentTarget));
-  window.pindoDesktop?.diagnosticAction?.("compatibility-status").then(showCompatibilityStatus).catch(() => {});
-  const desktopModeButton = document.querySelector("#desktopModeButton");
-  const desktopModeStatus = document.querySelector("#desktopModeStatus");
-  let desktopModeEnabled = false;
-  function showDesktopModeStatus(value = {}) {
-    desktopModeEnabled = Boolean(value.enabled);
-    desktopModeButton.textContent = desktopModeEnabled ? "切回原窗口模式" : "启用画布模式";
-    desktopModeStatus.textContent = value.compatibilityCanvas
-      ? "兼容模式正在使用稳定桌面画布，并已减少透明与复杂视觉效果"
-      : value.effectiveEnabled === false && desktopModeEnabled
-        ? "当前启动暂未启用画布"
-        : desktopModeEnabled ? "当前使用单窗口桌面画布" : "当前使用每个便签一个窗口";
-  }
-  desktopModeButton?.addEventListener("click", async event => {
-    const button = event.currentTarget; button.disabled = true;
-    desktopModeStatus.textContent = desktopModeEnabled ? "正在保存原窗口模式……" : "正在备份数据并启用画布模式……";
-    try {
-      const result = await window.pindoDesktop?.diagnosticAction?.("desktop-mode-set", { enabled: !desktopModeEnabled });
-      if (!result?.accepted) { desktopModeStatus.textContent = result?.error || "模式切换失败"; return; }
-      showDesktopModeStatus(result); desktopModeStatus.textContent += "；重启 PinDo 后生效";
-    } catch { desktopModeStatus.textContent = "模式切换失败，请稍后重试"; }
-    finally { button.disabled = false; }
-  });
-  window.pindoDesktop?.diagnosticAction?.("desktop-mode-status").then(showDesktopModeStatus).catch(() => {});
   const cloudStatus = document.querySelector("#cloudSettingsStatus");
   const cloudEmail = document.querySelector("#cloudEmail");
   const cloudPassword = document.querySelector("#cloudPassword");
@@ -2363,7 +2333,7 @@
     };
     const publish = async () => {
       scheduled = 0;
-      const selector = '.note, .bookmark, .bookmark-overflow, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
+      const selector = '.note, .mini-popover, .text-toolbar:not([hidden]), .capture-preview, .dock-target.active';
       const regions = [...document.querySelectorAll(selector)].filter(el => el.getClientRects().length).map(el => {
         const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
       });
