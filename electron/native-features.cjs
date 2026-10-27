@@ -186,7 +186,7 @@ function registerNativeFeatures({electron, mainWindow, manager, noteIdentity, ge
     }
   };
   return {dock,groups,gestureHooks,dockDodo,commit,
-    sync(){dock.sync(getCanvasWindow()?[]:(getStore()?.state.notes||[]),getStore()?.state.settings||{});void refreshStoredIcons().catch(error=>console.warn('Icon refresh failed:',error.message));},
+    sync(){dock.sync(getStore()?.state.notes||[],getStore()?.state.settings||{});void refreshStoredIcons().catch(error=>console.warn('Icon refresh failed:',error.message));},
     close(){closed=true;edgePreview.close();if(!dock.window.isDestroyed())dock.window.destroy();capture.close();},
     normalize(){const store=getStore();if(!store)return false;const draft=normalizeGroups(structuredClone(store.state));if(JSON.stringify(draft)!==store.serialize()){store.setState(draft,store.revision);persist(store.serialize());return true;}return false;}
   };

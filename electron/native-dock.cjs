@@ -42,7 +42,14 @@ class NativeDock {
     const cards=notes.filter(n=>n.mode==='bookmark');
     if(!cards.length){this.cards=[];this.window.hide();this.previewWindow?.hide();return;}
     const work=this.screen.getPrimaryDisplay().workArea;
-    this.window.setBounds({x:work.x+work.width-430,y:work.y,width:430,height:work.height});
+    const scale={small:.88,medium:1,large:1.14}[settings.uiSize] || 1;
+    // Keep enough room for the renderer's visible-card calculation so the
+    // compact window does not turn the last card into an overflow entry.
+    const stackHeight=95*scale+cards.length*42*scale+12;
+    const height=Math.min(work.height,Math.max(120,Math.ceil(stackHeight)));
+    // Limit the transparent native surface to the actual dock content. Older
+    // Windows compositors otherwise repaint a 430px-wide desktop-height layer.
+    this.window.setBounds({x:work.x+work.width-430,y:work.y,width:430,height});
     this.cards=cards.map(n=>({id:n.id,title:n.title || '',icon:n.icon,iconColor:n.iconColor,color:n.color,type:n.type,count:(n.todos||[]).length,summary:n.type==='quick' ? (n.content||'').slice(0,70) : n.type==='timeline' ? (n.events||[]).filter(e=>{const d=new Date(e.time)-Date.now();return d>=0 && d<=7*86400000;}).map(e=>e.text).join('、').slice(0,70) : ''}));
     this.window.webContents.send('pindo:dock-settings',this.settings);
     this.window.webContents.send('pindo:dock-state', this.cards);

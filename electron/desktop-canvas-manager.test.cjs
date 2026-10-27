@@ -150,6 +150,16 @@ test('same-cycle Explorer lifecycle events coalesce to one host recovery', async
   manager.close();
 });
 
+test('valid Explorer parent recovery does not force a full canvas repaint', async () => {
+  const { calls, manager } = fixture(async () => ({ attached: true, parentValid: true, reattached: false }));
+  await manager.open();
+  const before = calls.filter(call => call[0] === 'send' && call[1] === 'pindo:canvas-refresh-regions').length;
+  await manager.recoverDesktopHost('show-desktop');
+  const after = calls.filter(call => call[0] === 'send' && call[1] === 'pindo:canvas-refresh-regions').length;
+  assert.equal(after, before);
+  manager.close();
+});
+
 test('Show Desktop and compositor lifecycle messages revalidate Explorer hosting without polling', async () => {
   let attachments = 0;
   const { calls, manager } = fixture(async () => ({ attached: ++attachments > 0 }));

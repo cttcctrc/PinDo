@@ -3,13 +3,16 @@ function createCanvasHitTest(win, screen) {
   let rectangles = [];
   let dragging = false;
   let ignored;
-  const contains = (point, rect) => point.x >= rect.x && point.y >= rect.y && point.x < rect.x + rect.width && point.y < rect.y + rect.height;
+  const contains = (point, rect, padding = 0) => point.x >= rect.x - padding && point.y >= rect.y - padding && point.x < rect.x + rect.width + padding && point.y < rect.y + rect.height + padding;
   const refresh = () => {
     if (win.isDestroyed()) return;
     const bounds = win.getBounds();
     const cursor = screen.getCursorScreenPoint();
     const position = { x: cursor.x - bounds.x, y: cursor.y - bounds.y };
-    const shouldIgnore = !dragging && !rectangles.some(rect => contains(position, rect));
+    // Keep a small exit margin once the canvas owns the pointer. It prevents
+    // pass-through from oscillating on fractional DIP edges during hover.
+    const padding = ignored === false ? 6 : 0;
+    const shouldIgnore = !dragging && !rectangles.some(rect => contains(position, rect, padding));
     if (ignored === shouldIgnore) return;
     ignored = shouldIgnore;
     win.setIgnoreMouseEvents(shouldIgnore, { forward: true });

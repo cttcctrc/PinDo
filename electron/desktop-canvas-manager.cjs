@@ -121,8 +121,10 @@ class DesktopCanvasManager {
       window.pindoWindowProfile.parentValid = result.parentValid ?? null;
       if (result.reattached) this.recoveryReattachCount += 1;
       this.recoveryLastDurationMs = Date.now() - startedAt;
-      window.webContents.invalidate?.();
-      window.webContents.send('pindo:canvas-refresh-regions');
+      if (result.reattached || result.parentValid !== true) {
+        window.webContents.invalidate?.();
+        window.webContents.send('pindo:canvas-refresh-regions');
+      }
       this.onDiagnostic('canvas-host-recovered', { windowId: window.id, reason, parentValid: result.parentValid ?? null, reattached: Boolean(result.reattached), durationMs: this.recoveryLastDurationMs, at: Date.now() });
       return true;
     })().finally(() => { this.recovering = null; });
