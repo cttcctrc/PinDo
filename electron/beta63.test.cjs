@@ -28,11 +28,11 @@ test('settings keeps Dodo in the visible native control regions', () => {
   assert.match(app, /\[settingsDialog,assistantMascot,dodoCanvas,sleepVisual,ghost\]/);
 });
 
-test('native note host is transparent by default, opaque in compatibility mode, and shadowless', () => {
+test('native note host stays transparent and shadowless in all effects profiles', () => {
   const manager = read('electron/note-window-manager.cjs');
   const css = read('dist/styles.css');
-  assert.match(manager, /transparent:\s*!this\.compatibilityMode/);
-  assert.match(manager, /backgroundColor:\s*this\.compatibilityMode \? view\.backgroundColor : '#00000000', hasShadow:\s*false/);
+  assert.match(manager, /transparent:\s*true/);
+  assert.match(manager, /backgroundColor:\s*'#00000000', hasShadow:\s*false/);
   assert.match(css, /html:has\(body\.note-window-mode\)/);
   assert.match(css, /body\.note-window-mode \.note\.is-resizing[\s\S]*box-shadow: inset/);
 });
