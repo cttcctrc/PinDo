@@ -160,6 +160,19 @@ test('valid Explorer parent recovery does not force a full canvas repaint', asyn
   manager.close();
 });
 
+test('hidden Canvas and native desktop surfaces are restored after Show Desktop', async () => {
+  const recovered=[];
+  const { calls, manager } = fixture(async () => ({ attached: true, parentValid: true, reattached: false }));
+  manager.onRecovered=value=>recovered.push(value);
+  await manager.open();
+  manager.window.visible=false;
+  await manager.recoverDesktopHost('show-desktop-hidden');
+  assert.equal(manager.window.isVisible(),true);
+  assert.equal(calls.filter(call=>call[0]==='show').length,2);
+  assert.equal(recovered.length,1);
+  manager.close();
+});
+
 test('Show Desktop and compositor lifecycle messages revalidate Explorer hosting without polling', async () => {
   let attachments = 0;
   const { calls, manager } = fixture(async () => ({ attached: ++attachments > 0 }));

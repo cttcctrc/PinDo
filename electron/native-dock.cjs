@@ -57,12 +57,13 @@ class NativeDock {
   }
   setHovered(active) {
     if (this.window.isDestroyed() || !this.window.isVisible()) return;
-    // The dock stays attached to the desktop layer. Raising it here only
-    // changes the order among desktop children, so its preview clears note
-    // windows without becoming an always-on-top overlay above other apps.
-    this.window.setAlwaysOnTop(Boolean(active),'floating');
-    if(active)this.window.moveTop();
+    // Never promote a transparent desktop surface during pointer hover.
+    // Windows 10 LTSC 2019 can then composite the Explorer wallpaper layer
+    // against black until another top-level application resets shell z-order.
+    this.hovered=Boolean(active);
+    this.onDiagnostic('dock-hover-changed',{id:this.window.id,active:this.hovered,zOrderChanged:false});
   }
+  restoreDesktopSurface(){if(!this.window.isDestroyed())this.sync(this.notes||[],this.settings||{});}
   setPreviewProbe(value){
     const win=this.previewWindow;if(!win||win.isDestroyed())return false;
     if(!value?.show){win.hide();this.onDiagnostic('cf07-preview-hidden',{id:win.id});return true;}

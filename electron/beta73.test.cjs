@@ -30,10 +30,11 @@ test('every note edge uses the asynchronous resize preview path', () => {
   assert.match(gesture, /\^resize:\(n\|s\|e\|w\|ne\|nw\|se\|sw\)\$/);
 });
 
-test('dock preview is temporarily raised above desktop note windows', () => {
+test('dock hover never promotes its transparent native window', () => {
   const dock = read('electron/native-dock.cjs');
-  assert.match(dock, /setAlwaysOnTop\(Boolean\(active\),'floating'\)/);
-  assert.match(dock, /if\(active\)this\.window\.moveTop\(\)/);
+  assert.doesNotMatch(dock, /setAlwaysOnTop\(Boolean\(active\),'floating'\)/);
+  assert.doesNotMatch(dock, /if\(active\)this\.window\.moveTop\(\)/);
+  assert.match(dock, /zOrderChanged:false/);
 });
 
 test('unchanged broadcasts and repeated native bounds no longer repaint surfaces', () => {
